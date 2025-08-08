@@ -1,7 +1,6 @@
 import csv
 from django.core.management.base import BaseCommand
 from money.models import Category
-from django.utils.text import slugify
 
 class Command(BaseCommand):
     help = 'Import categories from CSV with Schedule C line numbers'
@@ -23,10 +22,7 @@ class Command(BaseCommand):
 
                 category, created_flag = Category.objects.get_or_create(
                     category=category_name,
-                    defaults={
-                        'slug': slugify(category_name),
-                        'schedule_c_line': sched_c or None
-                    }
+                    defaults={'schedule_c_line': sched_c or None}
                 )
 
                 if created_flag:
