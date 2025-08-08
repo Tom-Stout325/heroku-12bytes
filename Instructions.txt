@@ -28,3 +28,9 @@ psql -h c34u0gd6rbe7bo.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com \
 enter password:  p394b3333c339b7f561c54835875759a97779635986207c7c41ec0321dc4df85e
 
 
+
+
+Heroku db shell:
+heroku pg:psql --app heroku-12bytes
+
+

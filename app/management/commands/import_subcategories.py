@@ -11,16 +11,16 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         csv_file = options['csv_file']
+        created, skipped = 0, 0
 
         with open(csv_file, newline='', encoding='utf-8') as file:
             reader = csv.DictReader(file)
-            created, skipped = 0, 0
 
             for row in reader:
                 sub_cat_name = row['sub_cat'].strip()
                 category_name = row['category'].strip()
+                schedule_c_line = row.get('schedule_c_line', '').strip() or None
 
-                # Get or create the related Category
                 try:
                     category = Category.objects.get(category=category_name)
                 except Category.DoesNotExist:
@@ -28,11 +28,13 @@ class Command(BaseCommand):
                     skipped += 1
                     continue
 
-                # Create the SubCategory
                 subcategory, created_flag = SubCategory.objects.get_or_create(
                     sub_cat=sub_cat_name,
                     category=category,
-                    defaults={'slug': slugify(sub_cat_name)}
+                    defaults={
+                        'slug': slugify(sub_cat_name),
+                        'schedule_c_line': schedule_c_line
+                    }
                 )
 
                 if created_flag:
@@ -42,10 +44,4 @@ class Command(BaseCommand):
                     self.stdout.write(f"⚠️ Skipped (already exists): {subcategory}")
                     skipped += 1
 
-            self.stdout.write(self.style.SUCCESS(f"\n✅ Done: {created} created, {skipped} skipped."))
-
-
-
-# Run Command:
-# python3 manage.py import_subcategories data/subcategories.csv
-#
+        self.stdout.write(self.style.SUCCESS(f"\n✅ Done: {created} created, {skipped} skipped."))
