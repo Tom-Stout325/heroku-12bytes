@@ -36,6 +36,7 @@ class SubCategory(models.Model):
     sub_cat = models.CharField(max_length=500, blank=True, null=True)
     category = models.ForeignKey(Category, on_delete=models.CASCADE, null=True, blank=True, related_name='subcategories')
     slug = models.SlugField(max_length=100, unique=True, blank=True)
+    schedule_c_line = models.CharField(max_length=10, blank=True, null=True, help_text="Enter Schedule C line number.")
 
     class Meta:
         verbose_name_plural = "Sub Categories"
