@@ -1,0 +1,136 @@
+{% load static %}
+{% load humanize %}
+
+{% block content %}
+<head>
+    <link rel="stylesheet" href="https://bootswatch.com/5/flatly/bootstrap.min.css">
+    <style>
+		@page {
+		  size: Letter;
+		  margin: 0;
+		}
+	  
+		body {
+		  margin: 0;
+		  padding: 1in;
+		  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+		}
+	  
+		.invoice-box {
+		  width: 100%;
+		  max-width: 7in;
+		  margin: 0 auto;
+		  background: #fff;
+		  box-shadow: 0 0 5px rgba(0,0,0,0.1);
+		  box-sizing: border-box;
+		}
+	  
+		.scroll-box {
+		  max-height: 4.5in;
+		  overflow-y: auto;
+		}
+	  
+		@media print {
+		  body {
+			margin: 0;
+			padding: 1in;
+		  }
+	  
+		  .invoice-box {
+			page-break-inside: avoid;
+			box-shadow: none;
+		  }
+	  
+		  .scroll-box {
+			overflow: visible !important;
+			max-height: none;
+		  }
+	  
+		  .btn {
+			display: none;
+		  }
+		}
+	  </style>
+	  
+</head>
+
+<body>
+<div class="invoice-box">
+
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-6">
+            <img src="{% static 'images/logo2.png' %}" style="width: 200px;">
+        </div>
+        <div class="col-6 text-end">
+            <h2>Invoice</h2>
+            <p class="mb-0">Invoice #: {{ invoice.invoice}}</p>
+            <p>Date: {{ invoice.date }}</p>
+        </div>
+    </div>
+
+    <!-- From/To -->
+    <div class="row mb-4">
+        <div class="col-6">
+            <div class="fw-bold bg-primary text-white px-2">FROM:</div>
+            <p class="mb-0">
+                TSP, LLC<br>
+                dba Airborne Images<br>
+                2241 West 171st Street<br>
+                Westfield, Indiana 46074
+            </p>
+        </div>
+        <div class="col-6">
+            <div class="fw-bold bg-primary text-white px-2">TO:</div>
+            <p class="mb-0">
+                {{ invoice.client }}<br>
+                {{ invoice.client.street }}<br>
+                {{ invoice.client.address2 }}<br>
+                {{ invoice.client.email }}
+            </p>
+        </div>
+    </div>
+
+    <!-- Event Info -->
+    <div class="mb-3 border rounded p-2">
+        <p class="mb-1"><strong>Event:</strong> {{ invoice.event }}</p>
+        <p class="mb-0"><strong>Location:</strong> {{ invoice.location }}</p>
+    </div>
+
+    <!-- Items Table -->
+    <div class="scroll-box mb-4">
+        <table class="table table-bordered table-sm">
+            <thead class="table-primary">
+                <tr>
+                    <th>Qty</th>
+                    <th>Description</th>
+                    <th>Unit Price</th>
+                    <th>Line Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in invoice.items.all %}
+                <tr>
+                    <td>{{ item.qty|default:0 }}</td>
+                    <td>{{ item.description }}</td>
+                    <td>${{ item.price|floatformat:2|intcomma }}</td>
+                    <td>${{ item.total|floatformat:2|intcomma }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Totals -->
+    <div class="text-end pe-2">
+        <h5>Total Due: ${{ invoice.amount|default:0.00|floatformat:2|intcomma }}</h5>
+    </div>
+<br><br><br><br>
+    <hr>
+    <!-- Footer -->
+    <div class="text-center mt-4 text-muted small">
+        <p class="mb-0">317.987.7387 &nbsp; | &nbsp; www.Airborne-Images.net &nbsp; | &nbsp; tom@airborne-images.net</p>
+    </div>
+</div>
+</body>
+{% endblock %}

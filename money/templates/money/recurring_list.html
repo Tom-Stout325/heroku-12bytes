@@ -1,0 +1,50 @@
+{% extends 'index.html' %} 
+
+
+{% block content %}
+
+  <div class="d-flex justify-content-start gap-2 mb-4">
+    <a href="{% url 'recurring_add' %}" class="btn btn-success">Add New</a>
+    <a href="{% url 'recurring_report' %}" class="btn btn-outline-primary">Run Report</a>
+    <a href="{% url 'run_monthly_recurring' %}" class="btn btn-outline-warning">
+      <i class="fa-solid fa-bolt"></i> Run Monthly Recurring
+    </a>
+  </div>
+
+  <table class="table table-sm table-striped">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Transaction</th>
+        <th>Amount</th>
+        <th>Day</th>
+        <th>Category</th>
+        <th>SubCategory</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in recurring_transactions %}
+      <tr>
+        <td>{{ r.id }}</td>
+        <td>{{ r.transaction }}</td>
+        <td>${{ r.amount }}</td>
+        <td>{{ r.day }}</td>
+        <td>{{ r.category }}</td>
+        <td>{{ r.sub_cat }}</td>
+        <td>
+          <a
+            href="{% url 'recurring_edit' r.pk %}"
+            class="btn btn-sm btn-warning"
+            >Edit</a>
+          <a
+            href="{% url 'recurring_delete' r.pk %}"
+            class="btn btn-sm btn-danger"
+            >Delete</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

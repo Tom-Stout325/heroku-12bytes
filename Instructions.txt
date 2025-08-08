@@ -1,0 +1,27 @@
+python manage.py import_transactions path/to/your.csv --user-id=1
+
+
+python manage.py shell
+from money.models import Transaction
+Transaction.objects.all().delete()
+Transaction.objects.count()
+
+
+
+Begin work on Travel Expense Report and NHRA Summary
+
+
+
+
+RDS Login:
+postgres://ud7u6s9otqner:p394b3333c339b7f561c54835875759a97779635986207c7c41ec0321dc4df85e@c34u0gd6rbe7bo.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/d29kfm8sf3vvp6
+
+
+psql -h c34u0gd6rbe7bo.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com \
+     -U ud7u6s9otqner \
+     -d d29kfm8sf3vvp6 \
+     -p 5432
+
+enter password:  p394b3333c339b7f561c54835875759a97779635986207c7c41ec0321dc4df85e
+
+

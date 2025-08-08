@@ -1,0 +1,9 @@
+{% extends 'index.html' %}
+{% block content %}
+<h2 class="mb-4">{{ form.instance.pk|yesno:"Edit Flight Log,Add Flight Log" }}</h2>
+<form method="post">{% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit" class="btn btn-success">Save</button>
+  <a href="{% url 'flightlog_list' %}" class="btn btn-secondary">Cancel</a>
+</form>
+{% endblock %}
