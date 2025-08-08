@@ -730,11 +730,14 @@ def upload_flightlog_csv(request):
                         tags=row.get("Tags", ""),
                     )
 
+                except Exception as e:
+                    print("Row error:", e, row)
+                    continue
+            
+    
+            return redirect('flightlog_list')
+
         form = FlightLogCSVUploadForm()
-
-
-
-
 
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=->     M A P S
 
