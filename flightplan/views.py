@@ -454,10 +454,7 @@ def equipment_pdf_single(request, pk):
     return response
 
 
-import csv
-from django.http import HttpResponse
-from django.contrib.auth.decorators import login_required
-from flightplan.models import Equipment
+
 
 @login_required
 def export_equipment_csv(request):
@@ -636,7 +633,6 @@ def safe_float(val):
 
 
 
-
 @login_required
 def upload_flightlog_csv(request):
     if request.method == 'POST':
@@ -647,32 +643,26 @@ def upload_flightlog_csv(request):
             reader = csv.DictReader(decoded)
             reader.fieldnames = [field.strip().replace('\ufeff', '') for field in reader.fieldnames]
 
-            # Header alias mapping
-            field_aliases = {
-                "Flight/Service Date": "Flight Date/Time"
-            }
+            field_aliases = {"Flight/Service Date": "Flight Date/Time"}
 
             for row in reader:
-                # Normalize column keys
                 row = {field_aliases.get(k.strip(), k.strip()): (v.strip() if v else "") for k, v in row.items()}
-
                 if not row.get("Flight Date/Time"):
-                    print("Skipping row: missing Flight Date/Time")
                     continue
 
                 try:
                     clean_dt = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', row["Flight Date/Time"])
                     dt = datetime.strptime(clean_dt, "%b %d, %Y %I:%M%p")
-                    flight_date = dt.date()
-                    landing_time = dt.time()
-                except Exception as e:
-                    print("Skipping row: invalid date/time format", e)
+                except Exception:
                     continue
 
-                try:
-                    air_seconds = safe_int(row.get("Air Seconds")) or 0
-                    air_time = timedelta(seconds=air_seconds)
+                flight_date = dt.date()
+                landing_time = dt.time()
 
+                air_seconds = safe_int(row.get("Air Seconds")) or 0
+                air_time = timedelta(seconds=air_seconds)
+
+                try:
                     FlightLog.objects.create(
                         flight_date=flight_date,
                         flight_title=row.get("Flight Title", ""),
@@ -693,10 +683,10 @@ def upload_flightlog_csv(request):
                         battery_name=row.get("Battery Name", ""),
                         battery_serial_printed=row.get("Bat Printed Serial", ""),
                         battery_serial_internal=row.get("Bat Internal Serial", ""),
-                        takeoff_battery_pct=safe_int(row.get("Takeoff Bat %").replace("%", "")),
+                        takeoff_battery_pct=safe_pct(row.get("Takeoff Bat %")),
                         takeoff_mah=safe_int(row.get("Takeoff mAh")),
                         takeoff_volts=safe_float(row.get("Takeoff Volts")),
-                        landing_battery_pct=safe_int(row.get("Landing Bat %").replace("%", "")),
+                        landing_battery_pct=safe_pct(row.get("Landing Bat %")),
                         landing_mah=safe_int(row.get("Landing mAh")),
                         landing_volts=safe_float(row.get("Landing Volts")),
                         max_altitude_ft=safe_float(row.get("Max Altitude (Feet)")),
@@ -714,8 +704,8 @@ def upload_flightlog_csv(request):
                         visibility_miles=safe_float(row.get("Ground Visibility (Miles)")),
                         wind_speed=safe_float(row.get("Ground Wind Speed")),
                         wind_direction=row.get("Ground Wind Direction", ""),
-                        cloud_cover=row.get("Cloud Cover", "").replace("%", ""),
-                        humidity_pct=safe_int(row.get("Humidity", "").replace("%", "")),
+                        cloud_cover=safe_pct(row.get("Cloud Cover")),
+                        humidity_pct=safe_pct(row.get("Humidity")),
                         dew_point_f=safe_float(row.get("Dew Point (f)")),
                         pressure_inhg=safe_float(row.get("Pressure")),
                         rain_rate=row.get("Rain Rate", ""),
@@ -729,15 +719,19 @@ def upload_flightlog_csv(request):
                         notes=row.get("Add Additional Notes", ""),
                         tags=row.get("Tags", ""),
                     )
-
                 except Exception as e:
-                    print("Row error:", e, row)
-                    continue
-            
-    
-            return redirect('flightlog_list')
+                    # log as needed; don’t crash the whole upload
+                    print("Row error:", e)
 
+            messages.success(request, "Flight log CSV uploaded.")
+            return redirect('flightlog_list')
+        else:
+            messages.error(request, "Invalid form submission.")
+    else:
         form = FlightLogCSVUploadForm()
+
+    return render(request, 'flightplan/flightlog_upload.html', {'form': form, 'current_page': 'flightlogs'})
+
 
 #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=->     M A P S
 
