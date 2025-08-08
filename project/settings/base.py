@@ -178,4 +178,16 @@ LOGGING = {
 SITE_ID = 1
 
 
-print("✅ Final DATABASES config:", DATABASES)
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'ERROR',
+    },
+}
