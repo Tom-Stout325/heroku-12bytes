@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User
-from money.models import Miles, Client, Invoice, Event
+from money.models import Miles, Client, Invoice
 
 
 class Command(BaseCommand):
@@ -24,35 +24,32 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(f'❌ User with ID {user_id} does not exist.'))
             return
 
-        success = 0
-        skipped = 0
+        success_count = 0
+        skipped_count = 0
 
-        with open(csv_path, newline='') as csvfile:
+        with open(csv_path, newline='', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
                 try:
                     date = datetime.strptime(row['date'], '%m/%d/%y').date()
                     begin = Decimal(row['start'])
                     end = Decimal(row['end'])
-                    vehicle = row['vehicle'].strip() or "Lead Foot"
-                    mileage_type = row['mileage_type'].strip() or "Taxable"
-                    tax = row['deductible'].strip() or "Yes"
-                    job = row.get('event', '').strip() or None
 
-                    # Resolve Client
-                    client_name = row['client'].strip()
+                    client_name = row.get('client', '').strip()
                     client = Client.objects.filter(business__iexact=client_name).first()
-
                     if not client:
-                        self.stderr.write(self.style.WARNING(f"⚠️ Skipped: Client '{client_name}' not found."))
-                        skipped += 1
+                        self.stderr.write(f"⚠️ Skipped: Client '{client_name}' not found.")
+                        skipped_count += 1
                         continue
 
-                    # Resolve Invoice
-                    invoice_number = row['invoice_number'].strip()
-                    invoice = Invoice.objects.filter(invoice_number=invoice_number).first()
+                    invoice_number = row.get('invoice_number', '').strip()
+                    invoice = Invoice.objects.filter(invoice_number=invoice_number).first() if invoice_number else None
 
-                    # Create mileage record
+                    deductible = row.get('deductible', 'Yes').strip() or 'Yes'
+                    event = row.get('event', '').strip() or None
+                    vehicle = row.get('vehicle', 'Lead Foot').strip() or 'Lead Foot'
+                    mileage_type = row.get('mileage_type', 'Taxable').strip() or 'Taxable'
+
                     Miles.objects.create(
                         user=user,
                         date=date,
@@ -60,23 +57,18 @@ class Command(BaseCommand):
                         end=end,
                         client=client,
                         invoice=invoice,
-                        tax=tax,
-                        job=job,
+                        tax=deductible,
+                        job=event,
                         vehicle=vehicle,
-                        mileage_type=mileage_type
+                        mileage_type=mileage_type,
                     )
-                    success += 1
+
+                    success_count += 1
 
                 except Exception as e:
                     self.stderr.write(self.style.ERROR(f"❌ Error importing row: {row} — {e}"))
-                    skipped += 1
+                    skipped_count += 1
 
-        self.stdout.write(self.style.SUCCESS(f'✅ Imported {success} mileage record(s).'))
-        if skipped:
-            self.stdout.write(self.style.WARNING(f'⚠️ Skipped {skipped} row(s) due to missing data or errors.'))
-
-
-# Run Command:
-#
-# python manage.py import_mileage data/mileage.csv --user-id=1
-#
+        self.stdout.write(self.style.SUCCESS(f"\n✅ Imported {success_count} mileage record(s)."))
+        if skipped_count:
+            self.stdout.write(self.style.WARNING(f"⚠️ Skipped {skipped_count} row(s) due to errors or missing data."))

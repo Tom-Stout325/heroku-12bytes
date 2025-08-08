@@ -45,3 +45,7 @@ class Command(BaseCommand):
                     skipped += 1
 
         self.stdout.write(self.style.SUCCESS(f"\n✅ Done: {created} created, {skipped} skipped."))
+
+
+
+# heroku run --app heroku-12bytes python manage.py import_subcategories data/subcategories.csv
