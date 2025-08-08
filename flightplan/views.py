@@ -721,7 +721,7 @@ def upload_flightlog_csv(request):
         form = FlightLogCSVUploadForm()
 
     # Render upload page on GET or invalid POST
-    return render(request, 'flightplan/flightlog_upload.html', {'form': form, 'current_page': 'flightlogs'})
+    return render(request, 'flightplan/flightlog_form.html', {'form': form, 'current_page': 'flightlogs'})
 
 
 # -------------------------------------------------
