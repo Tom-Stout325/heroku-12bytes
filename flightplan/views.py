@@ -28,7 +28,8 @@ from django.db.models import Count
 
 from django.utils.decorators import method_decorator
 from django.views.decorators.clickjacking import xframe_options_exempt
-
+import traceback
+import sys
 
 @login_required
 def drone_portal(request):
@@ -690,10 +691,10 @@ def upload_flightlog_csv(request):
                         battery_name=row.get("Battery Name", ""),
                         battery_serial_printed=row.get("Bat Printed Serial", ""),
                         battery_serial_internal=row.get("Bat Internal Serial", ""),
-                        takeoff_battery_pct = safe_int((row.get("Takeoff Bat %") or "").replace("%", ""))
+                        takeoff_battery_pct = safe_int((row.get("Takeoff Bat %") or "").replace("%", "")),
                         takeoff_mah=safe_int(row.get("Takeoff mAh")),
                         takeoff_volts=safe_float(row.get("Takeoff Volts")),
-                        landing_battery_pct = safe_int((row.get("Landing Bat %") or "").replace("%", ""))
+                        landing_battery_pct = safe_int((row.get("Landing Bat %") or "").replace("%", "")),
                         landing_mah=safe_int(row.get("Landing mAh")),
                         landing_volts=safe_float(row.get("Landing Volts")),
                         max_altitude_ft=safe_float(row.get("Max Altitude (Feet)")),
@@ -711,8 +712,8 @@ def upload_flightlog_csv(request):
                         visibility_miles=safe_float(row.get("Ground Visibility (Miles)")),
                         wind_speed=safe_float(row.get("Ground Wind Speed")),
                         wind_direction=row.get("Ground Wind Direction", ""),
-                        cloud_cover = (row.get("Cloud Cover", "") or "").replace("%", "")
-                        humidity_pct = safe_int((row.get("Humidity", "") or "").replace("%", ""))
+                        cloud_cover = (row.get("Cloud Cover", "") or "").replace("%", ""),
+                        humidity_pct = safe_int((row.get("Humidity", "") or "").replace("%", "")),
                         dew_point_f=safe_float(row.get("Dew Point (f)")),
                         pressure_inhg=safe_float(row.get("Pressure")),
                         rain_rate=row.get("Rain Rate", ""),
@@ -727,11 +728,8 @@ def upload_flightlog_csv(request):
                         tags=row.get("Tags", ""),
                     )
                 except Exception as e:
-                    print("Row error:", e, row)
-                    import traceback
-                    import sys
-
                     traceback.print_exc(file=sys.stderr)
+                    print("Row error:", e, row)
 
                     continue
                 
