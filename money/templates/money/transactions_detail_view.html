@@ -37,7 +37,7 @@
         <dt class="col-sm-4 fw-semibold">Description:</dt>
         <dd class="col-sm-8">{{ transaction.transaction }}</dd>
 
-        {% if t.sub_cat.slug == 'meals' %}
+        {% if transaction.sub_cat.slug == 'meals' %}
           <dt class="col-sm-4 fw-semibold">Deductible Amount:</dt>
           <dd class="col-sm-8 text-info">
             ${{ transaction.deductible_amount|floatformat:2|intcomma }} <small class="text-muted">(50% deductible)</small>
@@ -46,15 +46,21 @@
 
         <dt class="col-sm-4 fw-semibold">Event:</dt>
         <dd class="col-sm-8">{{ transaction.event|default:'—' }}</dd>
-
+        
         <dt class="col-sm-4 fw-semibold">Invoice:</dt>
         <dd class="col-sm-8">
-          {% if transaction.invoice %}
-            {{ transaction.invoice.invoice_number.invoice_number }}
+          {% if transaction.invoice_number %}
+            {% if matched_invoice %}
+              <a href="{% url 'invoice_detail' matched_invoice.pk %}">#{{ matched_invoice.invoice_number }}</a>
+              {% if transaction.event %}<small class="text-muted">({{ transaction.event }})</small>{% endif %}
+            {% else %}
+              #{{ transaction.invoice_number }}
+            {% endif %}
           {% else %}
             —
           {% endif %}
         </dd>
+
 
         <dt class="col-sm-4 fw-semibold">Team:</dt>
         <dd class="col-sm-8">{{ transaction.team|default:'—' }}</dd>

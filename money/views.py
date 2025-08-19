@@ -152,22 +152,41 @@ class Transactions(LoginRequiredMixin, ListView):
 
 
 
+
 class TransactionDetailView(LoginRequiredMixin, DetailView):
     model = Transaction
     template_name = 'money/transactions_detail_view.html'
     context_object_name = 'transaction'
 
     def get_queryset(self):
-        return Transaction.objects.select_related(
-            'sub_cat__category', 'sub_cat', 'team', 'event'
-        ).filter(user=self.request.user)
+        # pull common FKs in one query
+        return (
+            Transaction.objects
+            .select_related('sub_cat', 'sub_cat__category', 'team', 'event')
+            .filter(user=self.request.user)
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        t = context['transaction']
+
+        matched_invoice = None
+        if t.invoice_number:
+            # 1) Prefer strict match on (event, invoice_number) when event exists
+            if t.event_id:
+                matched_invoice = Invoice.objects.filter(
+                    invoice_number=t.invoice_number,
+                    event=t.event
+                ).first()
+            # 2) Fallback: match by invoice_number only
+            if not matched_invoice:
+                matched_invoice = Invoice.objects.filter(
+                    invoice_number=t.invoice_number
+                ).first()
+
+        context['matched_invoice'] = matched_invoice
         context['current_page'] = 'transactions'
         return context
-
-
 
 
 class TransactionCreateView(LoginRequiredMixin, CreateView):

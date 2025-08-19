@@ -1,3 +1,12 @@
+
+
+Transaction Detail View
+- Invoice Number doesn't show
+- Dedutible amount doesn't show for meals
+
+
+
+
 python manage.py import_transactions path/to/your.csv --user-id=1
 
 
