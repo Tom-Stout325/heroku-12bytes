@@ -259,17 +259,17 @@ class Miles(models.Model):
         ('Reimbursed', 'Reimbursed'),
     ]
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    date = models.DateField()
-    begin = models.DecimalField(max_digits=10, decimal_places=1, null=True, validators=[MinValueValidator(0)])
-    end = models.DecimalField(max_digits=10, decimal_places=1, null=True, validators=[MinValueValidator(0)])
-    total = models.DecimalField(max_digits=10, decimal_places=1, null=True, editable=False)
-    client = models.ForeignKey('Client', on_delete=models.PROTECT)
-    invoice = models.ForeignKey('Invoice', null=True, blank=True, on_delete=models.SET_NULL)
-    tax = models.CharField(max_length=10, blank=False, null=True, default="Yes")
-    job = models.CharField(max_length=255, blank=True, null=True)
-    vehicle = models.CharField(max_length=255, blank=False, null=True, default="Lead Foot")
-    mileage_type = models.CharField(max_length=20, choices=MILEAGE_TYPE_CHOICES, default='Taxable')
+    user            = models.ForeignKey(User, on_delete=models.CASCADE)
+    date            = models.DateField()
+    begin           = models.DecimalField(max_digits=10, decimal_places=1, null=True, validators=[MinValueValidator(0)])
+    end             = models.DecimalField(max_digits=10, decimal_places=1, null=True, validators=[MinValueValidator(0)])
+    total           = models.DecimalField(max_digits=10, decimal_places=1, null=True, editable=False)
+    client          = models.ForeignKey('Client', on_delete=models.PROTECT)
+    invoice_number  = models.CharField(null=True, blank=True, db_index=True)
+    tax             = models.CharField(max_length=10, blank=False, null=True, default="Yes")
+    job             = models.CharField(max_length=255, blank=True, null=True)
+    vehicle         = models.CharField(max_length=255, blank=False, null=True, default="Lead Foot")
+    mileage_type    = models.CharField(max_length=20, choices=MILEAGE_TYPE_CHOICES, default='Taxable')
 
     class Meta:
         indexes = [

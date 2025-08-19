@@ -551,30 +551,119 @@ class InvoiceDeleteView(LoginRequiredMixin, DeleteView):
 
 
 
+# @login_required
+# def invoice_review(request, pk):
+#     invoice = get_object_or_404(Invoice, pk=pk)
+
+#     # Related transactions
+#     transactions = Transaction.objects.filter(
+#         event=invoice.event,
+#         invoice_number=invoice.invoice_number
+#     ).select_related('sub_cat__category')
+
+#     # Related mileage
+#     mileage_entries = Miles.objects.filter(
+#         invoice=invoice,
+#         user=request.user,
+#         tax__iexact="Yes",
+#         mileage_type="Taxable"
+#     )
+
+#     try:
+#         rate = MileageRate.objects.first().rate if MileageRate.objects.exists() else Decimal("0.70")
+#     except Exception as e:
+#         logger.error(f"Error fetching mileage rate: {e}")
+#         rate = Decimal("0.70")
+
+#     total_mileage_miles = mileage_entries.aggregate(Sum('total'))['total__sum'] or Decimal("0.00")
+#     mileage_dollars = round(total_mileage_miles * rate, 2)
+
+#     total_income = Decimal("0.00")
+#     total_expenses = Decimal("0.00")
+#     deductible_expenses = Decimal("0.00")
+
+#     for t in transactions:
+#         if t.trans_type == 'Income':
+#             total_income += t.amount
+#         elif t.trans_type == 'Expense':
+#             total_expenses += t.amount
+
+#             if t.sub_cat and t.sub_cat.slug == 'meals':
+#                 deductible_expenses += t.deductible_amount
+#             elif t.sub_cat and t.sub_cat.slug == 'fuel' and t.transport_type == "personal_vehicle":
+#                 continue  # not deductible
+#             else:
+#                 deductible_expenses += t.amount
+
+#     has_income_transaction = total_income > 0
+#     total_cost = total_expenses + mileage_dollars
+
+#     # Conditional calculations
+#     net_income = total_income - total_expenses if has_income_transaction else None
+#     taxable_income = total_income - deductible_expenses - mileage_dollars if has_income_transaction else None
+
+#     context = {
+#         'invoice': invoice,
+#         'transactions': transactions,
+#         'mileage_entries': mileage_entries,
+#         'mileage_rate': rate,
+#         'mileage_dollars': mileage_dollars,
+#         'invoice_amount': invoice.amount,
+#         'total_expenses': total_expenses,
+#         'deductible_expenses': deductible_expenses,
+#         'total_income': total_income,
+#         'net_income': net_income,
+#         'taxable_income': taxable_income,
+#         'total_cost': total_cost,
+#         'has_income_transaction': has_income_transaction,
+#         'now': now(),
+#         'current_page': 'invoices',
+#     }
+
+#     return render(request, 'money/invoice_review.html', context)
+
+
+
+from decimal import Decimal
+from django.db.models import Sum, F, Value, DecimalField, ExpressionWrapper
+
 @login_required
 def invoice_review(request, pk):
     invoice = get_object_or_404(Invoice, pk=pk)
 
     # Related transactions
-    transactions = Transaction.objects.filter(
-        event=invoice.event,
-        invoice_number=invoice.invoice_number
-    ).select_related('sub_cat__category')
-
-    # Related mileage
-    mileage_entries = Miles.objects.filter(
-        invoice=invoice,
-        user=request.user,
-        tax__iexact="Yes",
-        mileage_type="Taxable"
+    transactions = (
+        Transaction.objects
+        .filter(event=invoice.event, invoice_number=invoice.invoice_number)
+        .select_related('sub_cat__category')
     )
 
+    # Mileage rate (default 0.70 if none set)
     try:
         rate = MileageRate.objects.first().rate if MileageRate.objects.exists() else Decimal("0.70")
     except Exception as e:
         logger.error(f"Error fetching mileage rate: {e}")
         rate = Decimal("0.70")
 
+    # ✅ Related mileage — match by invoice_number (string), not FK
+    mileage_entries = (
+        Miles.objects
+        .filter(
+            user=request.user,
+            invoice_number=invoice.invoice_number,
+            tax__iexact="Yes",
+            mileage_type="Taxable",
+        )
+        .annotate(  # per-row dollar value = total miles * rate
+            value=ExpressionWrapper(
+                F('total') * Value(rate),
+                output_field=DecimalField(max_digits=10, decimal_places=2)
+            )
+        )
+        .order_by('date')
+    )
+
+    # Totals
     total_mileage_miles = mileage_entries.aggregate(Sum('total'))['total__sum'] or Decimal("0.00")
     mileage_dollars = round(total_mileage_miles * rate, 2)
 
@@ -587,7 +676,6 @@ def invoice_review(request, pk):
             total_income += t.amount
         elif t.trans_type == 'Expense':
             total_expenses += t.amount
-
             if t.sub_cat and t.sub_cat.slug == 'meals':
                 deductible_expenses += t.deductible_amount
             elif t.sub_cat and t.sub_cat.slug == 'fuel' and t.transport_type == "personal_vehicle":
@@ -597,8 +685,6 @@ def invoice_review(request, pk):
 
     has_income_transaction = total_income > 0
     total_cost = total_expenses + mileage_dollars
-
-    # Conditional calculations
     net_income = total_income - total_expenses if has_income_transaction else None
     taxable_income = total_income - deductible_expenses - mileage_dollars if has_income_transaction else None
 
@@ -619,8 +705,8 @@ def invoice_review(request, pk):
         'now': now(),
         'current_page': 'invoices',
     }
-
     return render(request, 'money/invoice_review.html', context)
+
 
 
 

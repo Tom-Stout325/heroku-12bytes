@@ -16,6 +16,9 @@ run-skyguy:
 run-airborne:
 	ENV_FILE=.env.airborne_images DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py runserver
 
+run-dev:
+	ENV_FILE=.env.local DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py runserver
+
 # ─── MIGRATIONS ─────────────────────────────────────────────
 migrate-skyguy:
 	ENV_FILE=$(ENV_SKYGUY) DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py migrate
