@@ -47,8 +47,10 @@
               <th>Sub-Category</th>
               <th>Amount</th>
               <th>Deductible</th>
+              <th class="text-center" style="width:110px;">Actions</th>
             </tr>
           </thead>
+
           <tbody>
             {% for t in transactions %}
             <tr>
@@ -70,11 +72,22 @@
                   Yes
                 {% endif %}
               </td>
+
+              <!-- Actions -->
+              <td class="text-center">
+                <a href="{% url 'transaction_detail' t.pk %}" class="btn btn-sm btn-outline-secondary me-1" title="View Transaction" aria-label="View Transaction">
+                  <i class="fas fa-eye"></i>
+                </a>
+                <a href="{% url 'edit_transaction' t.pk %}" class="btn btn-sm btn-outline-primary" title="Edit Transaction" aria-label="Edit Transaction">
+                  <i class="fas fa-edit"></i>
+                </a>
+              </td>
             </tr>
             {% empty %}
-            <tr><td colspan="5" class="text-center">No transactions found.</td></tr>
+            <tr><td colspan="6" class="text-center">No transactions found.</td></tr>
             {% endfor %}
           </tbody>
+
         </table>
       </div>
     </div>
