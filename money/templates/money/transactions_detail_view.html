@@ -46,12 +46,12 @@
 
         <dt class="col-sm-4 fw-semibold">Event:</dt>
         <dd class="col-sm-8">{{ transaction.event|default:'—' }}</dd>
-        
+
         <dt class="col-sm-4 fw-semibold">Invoice:</dt>
         <dd class="col-sm-8">
           {% if transaction.invoice_number %}
             {% if matched_invoice %}
-              <a href="{% url 'invoice_detail' matched_invoice.pk %}">#{{ matched_invoice.invoice_number }}</a>
+              <a href="{% url 'invoice_review' matched_invoice.pk %}">#{{ matched_invoice.invoice_number }}</a>
               {% if transaction.event %}<small class="text-muted">({{ transaction.event }})</small>{% endif %}
             {% else %}
               #{{ transaction.invoice_number }}
