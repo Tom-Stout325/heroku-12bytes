@@ -1,9 +1,5 @@
 
 
-Transaction Detail View
-- Invoice Number doesn't show
-- Dedutible amount doesn't show for meals
-
 
 
 
@@ -43,3 +39,11 @@ Heroku db shell:
 heroku pg:psql --app heroku-12bytes
 
 
+Disable Collectstatic during deployment:
+heroku config:set DISABLE_COLLECTSTATIC=1 -a heroku-12bytes
+
+Re-enable Collectstatic:
+heroku config:unset DISABLE_COLLECTSTATIC -a heroku-12bytes
+
+Run Collectstatic manually:
+heroku run -a heroku-12bytes -- python manage.py collectstatic --noinput
