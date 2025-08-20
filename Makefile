@@ -72,4 +72,4 @@ open-prod:
 
 
 migrate-prod:
-	heroku run -a $(PROD_APP) -- python manage.py migrate --noinpu
+	heroku run -a $(PROD_APP) -- python manage.py migrate --noinput
