@@ -37,9 +37,11 @@
           <th>Model</th>
           <th class="d-none d-md-table-cell">Serial</th>
           <th class="d-none d-md-table-cell">Purchased</th>
+          <th>Active</th>
           <th>Actions</th>
         </tr>
       </thead>
+
       <tbody>
         {% for item in equipment %}
         <tr>
@@ -49,23 +51,29 @@
           <td>{{ item.model }}</td>
           <td class="d-none d-md-table-cell">{{ item.serial_number }}</td>
           <td class="d-none d-md-table-cell">{{ item.purchase_date|default:"—" }}</td>
-        <td>
-          <div class="d-flex justify-content-center align-items-center gap-2">
-            <button type="button" class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#equipmentModal{{ item.pk }}"title="View">
-              <i class="fas fa-eye"></i>
-            </button>
-            <a href="{% url 'equipment_edit' item.pk %}" class="btn btn-sm btn-primary" title="Edit">
-              <i class="fas fa-edit"></i>
-            </a>
-            <a href="{% url 'equipment_delete' item.pk %}" class="btn btn-sm btn-danger" title="Delete">
-              <i class="fas fa-trash-alt"></i>
-            </a>
-          </div>
-        </td>
-
+          <td class="text-center">
+            {% if item.active %}
+              <i class="fas fa-check-circle text-success"></i>
+            {% else %}
+              <i class="fas fa-times-circle text-muted"></i>
+            {% endif %}
+          </td>
+          <td>
+            <div class="d-flex justify-content-center align-items-center gap-2">
+              <button type="button" class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#equipmentModal{{ item.pk }}" title="View">
+                <i class="fas fa-eye"></i>
+              </button>
+              <a href="{% url 'equipment_edit' item.pk %}" class="btn btn-sm btn-primary" title="Edit">
+                <i class="fas fa-edit"></i>
+              </a>
+              <a href="{% url 'equipment_delete' item.pk %}" class="btn btn-sm btn-danger" title="Delete">
+                <i class="fas fa-trash-alt"></i>
+              </a>
+            </div>
+          </td>
         </tr>
         {% empty %}
-        <tr><td colspan="7" class="text-center">No equipment found.</td></tr>
+        <tr><td colspan="8" class="text-center">No equipment found.</td></tr>
         {% endfor %}
       </tbody>
     </table>

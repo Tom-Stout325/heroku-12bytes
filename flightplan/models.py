@@ -52,10 +52,9 @@ class Equipment(models.Model):
         return f"{self.name} ({self.equipment_type})"
 
     class Meta:
-        ordering = ['equipment_type', 'name']
+        ordering = ['-active', 'equipment_type', 'name']
         verbose_name_plural = "Equipment"
 
-    
 
     
 class DroneIncidentReport(models.Model):
