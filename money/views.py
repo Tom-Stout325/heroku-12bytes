@@ -7,11 +7,14 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.template.loader import render_to_string
+from django.utils.functional import cached_property
 from django.db.models.functions import ExtractYear
 from django.views.generic.edit import UpdateView
 from django.template.loader import get_template
 from django.urls import reverse_lazy, reverse
 from django.conf.urls.static import static
+from django.utils.encoding import smart_str
+from calendar import monthrange, month_name
 from django.core.paginator import Paginator
 from django.core.mail import EmailMessage
 from django.utils.timezone import now
@@ -22,18 +25,17 @@ from datetime import datetime, date
 from django.db import transaction
 from django.utils import timezone
 from django.conf import settings
-from calendar import monthrange, month_name
 from weasyprint import HTML, CSS
+from decimal import Decimal
 from pathlib import Path
 import tempfile
 import logging
 import csv
 import os
+
+from flightplan.models import Equipment
 from .models import *
 from .forms import *
-from flightplan.models import Equipment
-from decimal import Decimal
-from django.utils.functional import cached_property
 
 
 logger = logging.getLogger(__name__)
@@ -54,34 +56,16 @@ class Dashboard(LoginRequiredMixin, TemplateView):
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=->         T R A N S A C T I O N S 
 
 
-
-# money/views.py  (transactions section)
-from decimal import Decimal
-import csv
-
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.contrib.auth.decorators import login_required
-from django.views.generic import ListView
-from django.db.models.functions import ExtractYear
-from django.http import HttpResponse
-from django.utils.encoding import smart_str
-
-from .models import Transaction, Category, SubCategory, Event
-
-
-# -------- Sorting --------
-
-# Keys you allow from the UI (and that you'll show in sort_state)
 ALLOWED_SORT_FIELDS = (
     "date",
     "trans_type",
     "transaction",
     "amount",
     "invoice_number",
-    "event",          # shown in header; maps to event__title
+    "event",
 )
 
-# Map UI keys -> ORM fields. Related fields must use double-underscore.
+
 SORT_MAP = {
     "date": "date",
     "trans_type": "trans_type",
@@ -91,28 +75,42 @@ SORT_MAP = {
     "event": "event__title",
 }
 
+
 def _sanitize_sort(raw_sort: str) -> str:
-    """
-    Only allow keys defined in ALLOWED_SORT_FIELDS (with optional '-').
-    Fallback to '-date'.
-    """
+    """Only allow ALLOWED_SORT_FIELDS (with optional '-'); fallback to '-date'."""
     if not raw_sort:
         return "-date"
     key = raw_sort.lstrip('-')
     return raw_sort if key in ALLOWED_SORT_FIELDS else "-date"
 
-def _build_sort_state(current_sort: str):
+
+def _build_sort_state(current_sort: str, keys=None, default_key="-date"):
     """
-    Build sort state for template:
-      sort_state.<key>.is_asc / is_desc / next
+    Backward-compatible:
+      - If 'keys' is provided, build state for those keys (useful for tri-state toggling).
+      - If 'keys' is None, use ALLOWED_SORT_FIELDS (Transactions template case).
+
+    For each key, returns:
+      {"is_asc": bool, "is_desc": bool, "next": <next sort token>}
+    Next rule:
+      - asc  -> desc  (e.g., 'date' -> '-date')
+      - desc -> default_key if provided else key (tri-state support)
+      - none -> asc
     """
+    keys = list(keys) if keys else list(ALLOWED_SORT_FIELDS)
     state = {}
-    for key in ALLOWED_SORT_FIELDS:
-        is_asc = (current_sort == key)
-        is_desc = (current_sort == f"-{key}")
-        next_sort = f"-{key}" if is_asc else key  # asc -> desc, otherwise -> asc
-        state[key] = {"is_asc": is_asc, "is_desc": is_desc, "next": next_sort}
+    for k in keys:
+        is_asc = (current_sort == k)
+        is_desc = (current_sort == f"-{k}")
+        if is_asc:
+            nxt = f"-{k}"
+        elif is_desc:
+            nxt = default_key if default_key else k
+        else:
+            nxt = k
+        state[k] = {"is_asc": is_asc, "is_desc": is_desc, "next": nxt}
     return state
+
 
 def _apply_ordering(qs, sort_param: str):
     sort = _sanitize_sort(sort_param)
@@ -122,8 +120,6 @@ def _apply_ordering(qs, sort_param: str):
         field = f"-{field}"
     return qs.order_by(field), sort
 
-
-# -------- Filters (shared by list + export) --------
 
 def _filtered_transactions(request):
     """
@@ -154,7 +150,6 @@ def _filtered_transactions(request):
     return qs
 
 
-# -------- List View --------
 
 class Transactions(LoginRequiredMixin, ListView):
     model = Transaction
@@ -169,22 +164,21 @@ class Transactions(LoginRequiredMixin, ListView):
         return qs
 
     def get_context_data(self, **kwargs):
-        from django.db.models import Q  # only if you later add text search, otherwise unused
+        from django.db.models import Q  
         ctx = super().get_context_data(**kwargs)
 
-        # Filter dropdown data
         ctx['events'] = (
-            Event.objects.filter(transactions__user=self.request.user)  # relies on related_name='transactions'
+            Event.objects.filter(transactions__user=self.request.user) 
             .distinct()
             .order_by('slug')
         )
         ctx['categories'] = (
-            Category.objects.filter(subcategories__transaction__user=self.request.user)  # relies on related_name='subcategories'
+            Category.objects.filter(subcategories__transaction__user=self.request.user)  
             .distinct()
             .order_by('category')
         )
         ctx['subcategories'] = (
-            SubCategory.objects.filter(transaction__user=self.request.user)  # relies on default or set related_name
+            SubCategory.objects.filter(transaction__user=self.request.user) 
             .distinct()
             .order_by('sub_cat')
         )
@@ -198,7 +192,6 @@ class Transactions(LoginRequiredMixin, ListView):
             )
         ]
 
-        # Selected filter values (as strings for template comparison)
         ctx.update({
             'selected_event': self.request.GET.get('event', ''),
             'selected_category': self.request.GET.get('category', ''),
@@ -211,15 +204,12 @@ class Transactions(LoginRequiredMixin, ListView):
         return ctx
 
 
-# -------- CSV Export (uses same filters + ordering) --------
-
 @login_required
 def export_transactions_csv(request):
     qs = _filtered_transactions(request)
     raw_sort = request.GET.get('sort', '-date')
     qs, _ = _apply_ordering(qs, raw_sort)
 
-    # Stream a simple CSV
     response = HttpResponse(content_type='text/csv; charset=utf-8')
     response['Content-Disposition'] = 'attachment; filename=transactions.csv'
     writer = csv.writer(response)
@@ -244,10 +234,6 @@ def export_transactions_csv(request):
         ])
 
     return response
-
-
-
-
 
 
 class TransactionDetailView(LoginRequiredMixin, DetailView):
