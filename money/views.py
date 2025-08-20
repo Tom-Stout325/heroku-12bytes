@@ -65,7 +65,6 @@ ALLOWED_SORT_FIELDS = (
     "event",
 )
 
-
 SORT_MAP = {
     "date": "date",
     "trans_type": "trans_type",
@@ -75,7 +74,6 @@ SORT_MAP = {
     "event": "event__title",
 }
 
-
 def _sanitize_sort(raw_sort: str) -> str:
     """Only allow ALLOWED_SORT_FIELDS (with optional '-'); fallback to '-date'."""
     if not raw_sort:
@@ -83,19 +81,15 @@ def _sanitize_sort(raw_sort: str) -> str:
     key = raw_sort.lstrip('-')
     return raw_sort if key in ALLOWED_SORT_FIELDS else "-date"
 
-
 def _build_sort_state(current_sort: str, keys=None, default_key="-date"):
     """
-    Backward-compatible:
-      - If 'keys' is provided, build state for those keys (useful for tri-state toggling).
-      - If 'keys' is None, use ALLOWED_SORT_FIELDS (Transactions template case).
+    If 'keys' is None, use ALLOWED_SORT_FIELDS (Transactions).
+    If 'keys' is provided, use it (Mileage, etc.).
 
-    For each key, returns:
-      {"is_asc": bool, "is_desc": bool, "next": <next sort token>}
     Next rule:
-      - asc  -> desc  (e.g., 'date' -> '-date')
-      - desc -> default_key if provided else key (tri-state support)
-      - none -> asc
+      asc  -> desc
+      desc -> default_key
+      none -> asc
     """
     keys = list(keys) if keys else list(ALLOWED_SORT_FIELDS)
     state = {}
@@ -105,12 +99,11 @@ def _build_sort_state(current_sort: str, keys=None, default_key="-date"):
         if is_asc:
             nxt = f"-{k}"
         elif is_desc:
-            nxt = default_key if default_key else k
+            nxt = default_key
         else:
             nxt = k
         state[k] = {"is_asc": is_asc, "is_desc": is_desc, "next": nxt}
     return state
-
 
 def _apply_ordering(qs, sort_param: str):
     sort = _sanitize_sort(sort_param)
@@ -1697,28 +1690,8 @@ def _get_mileage_rate():
     except Exception as e:
         return fallback
 
-def _build_sort_state(current_sort, keys, default_key="-date"):
-    """
-    Build a sort_state dict compatible with your template usage:
-      sort_state.<key>.is_asc / is_desc / next
-    """
-    state = {}
-    for k in keys:
-        asc = k
-        desc = f"-{k}"
-        is_asc = current_sort == asc
-        is_desc = current_sort == desc
-        if is_asc:
-            nxt = desc
-        elif is_desc:
-            nxt = default_key
-        else:
-            nxt = asc
-        state[k] = type("S", (), {"is_asc": is_asc, "is_desc": is_desc, "next": nxt})
-    return state
 
-
-SORT_MAP = {
+MILES_SORT_MAP = {
     "date": "date",
     "-date": "-date",
     "event": "event__title",
@@ -1737,17 +1710,14 @@ SORT_MAP = {
     "-amount": "-amount",
 }
 
-SORT_KEYS = [
+MILES_SORT_KEYS = [
     "date", "event", "invoice_number", "mileage_type",
     "begin", "end", "total", "amount",
 ]
 
 
-from django.db.models.functions import ExtractYear
-
 @login_required
 def mileage_log(request):
-    # Available years for this user (DESC)
     years_qs = (
         Miles.objects
         .filter(user=request.user)
@@ -1757,8 +1727,6 @@ def mileage_log(request):
         .order_by('-y')
     )
     years = list(years_qs)
-
-    # Parse ?year=YYYY (fallback to latest available or current year)
     try:
         year = int(request.GET.get("year")) if request.GET.get("year") else None
     except (TypeError, ValueError):
@@ -1787,8 +1755,11 @@ def mileage_log(request):
     )
 
     current_sort = request.GET.get("sort") or "-date"
-    order_by = SORT_MAP.get(current_sort, "-date")
+    order_by = MILES_SORT_MAP.get(current_sort, "-date")
     qs = qs.order_by(order_by)
+
+    sort_state = _build_sort_state(current_sort, MILES_SORT_KEYS, default_key="-date")
+
 
     taxable = qs.filter(mileage_type="Taxable")
     total_miles = taxable.aggregate(total=Sum("total"))["total"] or 0
@@ -1797,8 +1768,6 @@ def mileage_log(request):
     paginator = Paginator(qs, 50)
     page_number = request.GET.get("page", 1)
     page_obj = paginator.get_page(page_number)
-
-    sort_state = _build_sort_state(current_sort, SORT_KEYS, default_key="-date")
 
     context = {
         "mileage_list": page_obj,
@@ -1809,7 +1778,7 @@ def mileage_log(request):
         "mileage_rate": rate,
         "current_page": "mileage",
         "sort_state": sort_state,
-        "years": years,  # 👈 add to context
+        "years": years, 
     }
     return render(request, "money/mileage_log.html", context)
 
