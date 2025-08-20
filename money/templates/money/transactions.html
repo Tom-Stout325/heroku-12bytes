@@ -1,3 +1,4 @@
+{# money/templates/money/transactions.html #}
 {% extends 'index.html' %}
 {% load static %}
 {% load humanize %}
@@ -8,51 +9,27 @@
 {% block extra_css %}
 <style>
   @media (max-width: 768px) {
-    .mobile-card-table thead {
-      display: none;
-    }
+    .mobile-card-table thead { display: none; }
     .mobile-card-table tr {
-      display: block;
-      margin-bottom: 1.5rem;
-      border: 1px solid #ddd;
-      border-radius: 10px;
-      padding: 10px;
-      background: #fff;
+      display: block; margin-bottom: 1.5rem; border: 1px solid #ddd;
+      border-radius: 10px; padding: 10px; background: #fff;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     .mobile-card-table td {
-      display: block;
-      width: 100%;
-      text-align: right;
-      font-size: 0.95rem;
-      border-bottom: 1px solid #eee;
-      padding: 6px 0;
+      display: block; width: 100%; text-align: right; font-size: 0.95rem;
+      border-bottom: 1px solid #eee; padding: 6px 0;
     }
-    .mobile-card-table td:last-child {
-      border-bottom: none;
-    }
+    .mobile-card-table td:last-child { border-bottom: none; }
     .mobile-card-table td::before {
-      content: attr(data-label);
-      float: left;
-      font-weight: bold;
-      text-transform: uppercase;
-      font-size: 0.85rem;
+      content: attr(data-label); float: left; font-weight: bold;
+      text-transform: uppercase; font-size: 0.85rem;
     }
-    .mobile-card-table td[data-label="Amount:"] {
-      font-weight: bold;
-      color: #0d6efd;
-    }
-    .mobile-card-table td[data-label="Actions:"] {
-      text-align: right;
-      padding-top: 10px;
-      clear: both;
-    }
-    .mobile-card-table .btn {
-      margin: 0 4px;
-      padding: 6px 10px;
-      font-size: 0.9rem;
-    }
+    .mobile-card-table td[data-label="Amount:"] { font-weight: bold; color: #0d6efd; }
+    .mobile-card-table td[data-label="Actions:"] { text-align: right; padding-top: 10px; clear: both; }
+    .mobile-card-table .btn { margin: 0 4px; padding: 6px 10px; font-size: 0.9rem; }
   }
+  th a { color: inherit; }
+  th a:hover { text-decoration: none; }
 </style>
 {% endblock %}
 
@@ -60,7 +37,6 @@
 <div class="container mt-4">
   <h2 class="text-center text-primary">TRANSACTIONS</h2>
 
-  <!-- FILTER FORM -->
   <div class="my-5 text-center rounded shadow bg-light p-3">
     <form method="get" class="mb-4">
       <h4 class="text-info">Filter Transactions</h4>
@@ -105,7 +81,7 @@
       </div>
     </form>
 
-    <!-- Download and Add Buttons -->
+
     <div class="btn-group my-3" role="group">
       <a href="{% url 'export_transactions_csv' %}?{% if selected_year %}year={{ selected_year }}{% endif %}" class="btn btn-outline-success">Download CSV</a>
     </div>
@@ -118,19 +94,113 @@
     <table class="table table-striped table-hover mobile-card-table">
       <thead>
         <tr class="table-primary">
-          <th>Date</th>
-          <th>Type</th>
-          <th>Invoice #</th>
-          <th>Description</th>
-          <th>Amount</th>
+
+          {% with st=sort_state.date %}
+          <th scope="col" {% if st.is_asc %}aria-sort="ascending"{% elif st.is_desc %}aria-sort="descending"{% else %}aria-sort="none"{% endif %}>
+            <a class="text-decoration-none" href="?{% query_transform request.GET sort=st.next %}">
+              Date
+              {% if st.is_asc %}
+                <i class="fas fa-sort-up ms-1"></i>
+              {% elif st.is_desc %}
+                <i class="fas fa-sort-down ms-1"></i>
+              {% else %}
+                <i class="fas fa-sort ms-1 text-muted"></i>
+              {% endif %}
+            </a>
+          </th>
+          {% endwith %}
+
+          {% with st=sort_state.trans_type %}
+          <th scope="col" {% if st.is_asc %}aria-sort="ascending"{% elif st.is_desc %}aria-sort="descending"{% else %}aria-sort="none"{% endif %}>
+            <a class="text-decoration-none" href="?{% query_transform request.GET sort=st.next %}">
+              Type
+              {% if st.is_asc %}
+                <i class="fas fa-sort-up ms-1"></i>
+              {% elif st.is_desc %}
+                <i class="fas fa-sort-down ms-1"></i>
+              {% else %}
+                <i class="fas fa-sort ms-1 text-muted"></i>
+              {% endif %}
+            </a>
+          </th>
+          {% endwith %}
+
+          {% with st=sort_state.invoice_number %}
+          <th scope="col" {% if st.is_asc %}aria-sort="ascending"{% elif st.is_desc %}aria-sort="descending"{% else %}aria-sort="none"{% endif %}>
+            <a class="text-decoration-none" href="?{% query_transform request.GET sort=st.next %}">
+              Invoice #
+              {% if st.is_asc %}
+                <i class="fas fa-sort-up ms-1"></i>
+              {% elif st.is_desc %}
+                <i class="fas fa-sort-down ms-1"></i>
+              {% else %}
+                <i class="fas fa-sort ms-1 text-muted"></i>
+              {% endif %}
+            </a>
+          </th>
+          {% endwith %}
+
+          {% with st=sort_state.event %}
+            <th scope="col" {% if st.is_asc %}aria-sort="ascending"{% elif st.is_desc %}aria-sort="descending"{% else %}aria-sort="none"{% endif %}>
+              <a class="text-decoration-none" href="?{% query_transform request.GET sort=st.next %}">
+                Event
+                {% if st.is_asc %}
+                  <i class="fas fa-sort-up ms-1"></i>
+                {% elif st.is_desc %}
+                  <i class="fas fa-sort-down ms-1"></i>
+                {% else %}
+                  <i class="fas fa-sort ms-1 text-muted"></i>
+                {% endif %}
+              </a>
+            </th>
+          {% endwith %}
+
+          {% with st=sort_state.transaction %}
+          <th scope="col" {% if st.is_asc %}aria-sort="ascending"{% elif st.is_desc %}aria-sort="descending"{% else %}aria-sort="none"{% endif %}>
+            <a class="text-decoration-none" href="?{% query_transform request.GET sort=st.next %}">
+              Description
+              {% if st.is_asc %}
+                <i class="fas fa-sort-up ms-1"></i>
+              {% elif st.is_desc %}
+                <i class="fas fa-sort-down ms-1"></i>
+              {% else %}
+                <i class="fas fa-sort ms-1 text-muted"></i>
+              {% endif %}
+            </a>
+          </th>
+          {% endwith %}
+
+          {% with st=sort_state.amount %}
+          <th scope="col" {% if st.is_asc %}aria-sort="ascending"{% elif st.is_desc %}aria-sort="descending"{% else %}aria-sort="none"{% endif %}>
+            <a class="text-decoration-none" href="?{% query_transform request.GET sort=st.next %}">
+              Amount
+              {% if st.is_asc %}
+                <i class="fas fa-sort-up ms-1"></i>
+              {% elif st.is_desc %}
+                <i class="fas fa-sort-down ms-1"></i>
+              {% else %}
+                <i class="fas fa-sort ms-1 text-muted"></i>
+              {% endif %}
+            </a>
+          </th>
+          {% endwith %}
+
           <th class="text-center">Actions</th>
         </tr>
       </thead>
+
       <tbody>
         {% for transaction in transactions %}
         <tr>
           <td data-label="Date:">{{ transaction.date|date:"M d, Y" }}</td>
-          <td data-label="Type:">{{ transaction.trans_type }}</td>
+          <td data-label="Type:">
+            {% if transaction.trans_type == "Income" %}
+              <span class="badge bg-success">Income</span>
+            {% else %}
+             {{ transaction.trans_type }}
+            {% endif %}
+          </td>
+
           <td data-label="Invoice #:">
             {% if transaction.invoice_number %}
               {{ transaction.invoice_number }}
@@ -138,6 +208,7 @@
               <span class="text-muted">—</span>
             {% endif %}
           </td>
+          <td data-label="Event:">{{ transaction.event.title|default:"—" }}</td>
           <td data-label="Description:">{{ transaction.transaction }}</td>
           <td data-label="Amount:">${{ transaction.amount|floatformat:2 }}</td>
           <td data-label="Actions:" class="text-center mb-4">

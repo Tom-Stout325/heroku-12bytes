@@ -2,6 +2,8 @@ from pathlib import Path
 import environ
 import os
 from django.contrib.messages import constants as messages
+from django.core.exceptions import ImproperlyConfigured
+
 
 # Set base directory first
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -191,3 +193,11 @@ LOGGING = {
         'level': 'ERROR',
     },
 }
+
+
+if DEBUG and os.environ.get('ENV_FILE', '').endswith('.airborne_images'):
+    raise ImproperlyConfigured("Refusing to use production env file with DEBUG=True.")
+
+db = DATABASES['default']
+if DEBUG and (db.get('HOST') or '').strip() not in ('', '127.0.0.1', 'localhost'):
+    raise ImproperlyConfigured("Remote DATABASE_URL blocked in DEBUG. Use .env.airborne_local.")

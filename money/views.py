@@ -1,18 +1,16 @@
 from django.views.generic import TemplateView, ListView, DetailView, UpdateView, DeleteView, CreateView
 from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
-from django.db.models import Sum, Q, F, ExpressionWrapper, DecimalField
+from django.db.models import Sum, F, Value, DecimalField, ExpressionWrapper, Case, When
 from django.contrib.admin.views.decorators import staff_member_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
-from django.contrib.postgres.indexes import GinIndex
 from django.template.loader import render_to_string
 from django.db.models.functions import ExtractYear
 from django.views.generic.edit import UpdateView
 from django.template.loader import get_template
 from django.urls import reverse_lazy, reverse
-# from django.templatetags.static import static
 from django.conf.urls.static import static
 from django.core.paginator import Paginator
 from django.core.mail import EmailMessage
@@ -25,7 +23,6 @@ from django.db import transaction
 from django.utils import timezone
 from django.conf import settings
 from calendar import monthrange, month_name
-from django.views import View
 from weasyprint import HTML, CSS
 from pathlib import Path
 import tempfile
@@ -36,7 +33,6 @@ from .models import *
 from .forms import *
 from flightplan.models import Equipment
 from decimal import Decimal
-from django.db.models import F, ExpressionWrapper, DecimalField, Sum
 from django.utils.functional import cached_property
 
 
@@ -59,6 +55,34 @@ class Dashboard(LoginRequiredMixin, TemplateView):
 
 
 
+ALLOWED_SORT_FIELDS = ("date", "trans_type", "transaction", "amount", "invoice_number")
+
+def _sanitize_sort(raw_sort: str) -> str:
+    """
+    Only allow fields in ALLOWED_SORT_FIELDS (with optional leading '-').
+    Fallback to '-date'.
+    """
+    if not raw_sort:
+        return "-date"
+    field = raw_sort.lstrip('-')
+    if field not in ALLOWED_SORT_FIELDS:
+        return "-date"
+    return raw_sort if raw_sort.startswith('-') else field if field in ALLOWED_SORT_FIELDS else "-date"
+
+def _build_sort_state(current_sort: str):
+    """
+    For each sortable column, return:
+      - is_asc / is_desc booleans
+      - next (what to send in ?sort=… for next click)
+    """
+    state = {}
+    for f in ALLOWED_SORT_FIELDS:
+        is_asc = (current_sort == f)
+        is_desc = (current_sort == f"-{f}")
+        next_sort = f"-{f}" if is_asc else f
+        state[f] = {"is_asc": is_asc, "is_desc": is_desc, "next": next_sort}
+    return state
+
 
 class Transactions(LoginRequiredMixin, ListView):
     model = Transaction
@@ -67,70 +91,52 @@ class Transactions(LoginRequiredMixin, ListView):
     paginate_by = 50
 
     def get_queryset(self):
-        queryset = Transaction.objects.select_related(
-            'sub_cat__category', 'sub_cat', 'team', 'event',
-        ).filter(user=self.request.user)
+        qs = (
+            Transaction.objects
+            .select_related('sub_cat__category', 'sub_cat', 'team', 'event')
+            .filter(user=self.request.user)
+        )
 
-        # Filters
-        event_id = self.request.GET.get('Event')
+        # ---- Filters ----
+        event_id = self.request.GET.get('event')
         if event_id and Event.objects.filter(id=event_id).exists():
-            queryset = queryset.filter(event__id=event_id)
+            qs = qs.filter(event__id=event_id)
 
         category_id = self.request.GET.get('category')
         if category_id and Category.objects.filter(id=category_id).exists():
-            queryset = queryset.filter(sub_cat__category__id=category_id)
+            qs = qs.filter(sub_cat__category__id=category_id)
 
         sub_cat_id = self.request.GET.get('sub_cat')
         if sub_cat_id and SubCategory.objects.filter(id=sub_cat_id).exists():
-            queryset = queryset.filter(sub_cat__id=sub_cat_id)
+            qs = qs.filter(sub_cat__id=sub_cat_id)
 
         year = self.request.GET.get('year')
         if year and year.isdigit() and 1900 <= int(year) <= 9999:
-            queryset = queryset.filter(date__year=year)
+            qs = qs.filter(date__year=year)
 
-        invoice_id = self.request.GET.get('invoice')
-        if invoice_id and Invoice.objects.filter(id=invoice_id).exists():
-            queryset = queryset.filter(invoice__id=invoice_id)
-
-        # Sorting
-        sort = self.request.GET.get('sort', '-date')
-        valid_sort_fields = [
-            'date', '-date', 'trans_type', '-trans_type',
-            'transaction', '-transaction', 'event__slug', '-event__slug',
-            'amount', '-amount', 'invoice_number', '-invoice_number' , 'invoice_id', '-invoice_id'
-        ]
-        if sort not in valid_sort_fields:
-            sort = '-date'
-
+        # ---- Sorting ----
+        raw_sort = self.request.GET.get('sort', '-date')
+        sort = _sanitize_sort(raw_sort)
         self.current_sort = sort
-        return queryset.order_by(sort)
+        return qs.order_by(sort)
 
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
+        ctx = super().get_context_data(**kwargs)
 
-        context['col_headers'] = [
-            {'field': 'date', 'label': 'Date'},
-            {'field': 'trans_type', 'label': 'Type'},
-            {'field': 'transaction', 'label': 'Description'},
-            {'field': 'event__slug', 'label': 'Event'},
-            {'field': 'amount', 'label': 'Amount'},
-            {'field': 'invoice', 'label': 'Invoice #'},
-        ]
-
-        context['current_sort'] = self.current_sort
-        context['events'] = Event.objects.filter(
-            transactions__user=self.request.user
-        ).distinct().order_by('slug')
-
-        context['categories'] = Category.objects.filter(
-            subcategories__transaction__user=self.request.user
-        ).distinct().order_by('category')
-
-        context['subcategories'] = SubCategory.objects.filter(
-            transaction__user=self.request.user
-        ).distinct().order_by('sub_cat')
-
-        context['years'] = [
+        # Lists for filters
+        ctx['events'] = (
+            Event.objects.filter(transactions__user=self.request.user)
+            .distinct().order_by('slug')
+        )
+        ctx['categories'] = (
+            Category.objects.filter(subcategories__transaction__user=self.request.user)
+            .distinct().order_by('category')
+        )
+        ctx['subcategories'] = (
+            SubCategory.objects.filter(transaction__user=self.request.user)
+            .distinct().order_by('sub_cat')
+        )
+        ctx['years'] = [
             str(y) for y in Transaction.objects.filter(user=self.request.user)
             .annotate(year=ExtractYear('date'))
             .values_list('year', flat=True)
@@ -138,17 +144,17 @@ class Transactions(LoginRequiredMixin, ListView):
             .order_by('-year')
         ]
 
-        context.update({
+        # Current selections
+        ctx.update({
             'selected_event': self.request.GET.get('event', ''),
             'selected_category': self.request.GET.get('category', ''),
             'selected_sub_cat': self.request.GET.get('sub_cat', ''),
             'selected_year': self.request.GET.get('year', ''),
-            'current_page': 'transactions'
+            'current_page': 'transactions',
+            'current_sort': self.current_sort,
+            'sort_state': _build_sort_state(self.current_sort),
         })
-
-        return context
-
-
+        return ctx
 
 
 
@@ -219,8 +225,6 @@ class TransactionCreateView(LoginRequiredMixin, CreateView):
 
 
 
-
-
 class TransactionUpdateView(LoginRequiredMixin, UpdateView):
     model = Transaction
     form_class = TransForm
@@ -264,8 +268,6 @@ class TransactionUpdateView(LoginRequiredMixin, UpdateView):
         return context
     
     
-    
-    
 class TransactionDeleteView(LoginRequiredMixin, DeleteView):
     model = Transaction
     template_name = "money/transaction_confirm_delete.html"
@@ -294,51 +296,89 @@ class TransactionDeleteView(LoginRequiredMixin, DeleteView):
         return context
 
 
-
 @login_required
 def add_transaction_success(request):
     context = {'current_page': 'transactions'}
     return render(request, 'money/transaction_add_success.html', context)
 
 
-
-
 @login_required
 def export_transactions_csv(request):
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="transactions.csv"'
+    """
+    Export the user's transactions as CSV.
+    - Uses select_related only for relational fields.
+    - Writes invoice_number directly (CharField on Transaction).
+    - Also attempts to look up an Invoice PK for (invoice_number, event) pairs
+      so the CSV can still include 'Invoice PK' even without a direct FK.
+    """
+    qs = (
+        Transaction.objects
+        .select_related("sub_cat__category", "sub_cat", "team", "event", "user")
+        .filter(user=request.user)
+        .order_by("date")
+    )
 
+    year = request.GET.get("year")
+    if year and year.isdigit():
+        qs = qs.filter(date__year=year)
+
+    invoice_numbers = set(
+        n for n in qs.values_list("invoice_number", flat=True) if n
+    )
+    event_ids = set(
+        e for e in qs.values_list("event_id", flat=True) if e
+    )
+    invoice_pk_by_key = {}
+    if invoice_numbers and event_ids:
+        for inv in Invoice.objects.filter(
+            invoice_number__in=invoice_numbers,
+            event_id__in=event_ids,
+        ).only("id", "invoice_number", "event_id"):
+            invoice_pk_by_key[(inv.invoice_number, inv.event_id)] = inv.id
+
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = 'attachment; filename="transactions.csv"'
     writer = csv.writer(response)
+
     writer.writerow([
-        'Date', 'Type', 'Amount', 'Transaction',
-        'Category', 'Sub-Category', 'Team', 'Event',
-        'Invoice #', 'Invoice PK', 'Transport Type', 'User'
+        "Date",
+        "Type",
+        "Amount",
+        "Transaction",
+        "Category",
+        "Sub-Category",
+        "Team",
+        "Event",
+        "Invoice #",
+        "Invoice PK",
+        "Transport Type",
+        "User",
     ])
 
-    transactions = Transaction.objects.select_related(
-        'category', 'sub_cat', 'team', 'event', 'invoice', 'user'
-    ).filter(user=request.user).order_by('date')
+    for t in qs:
+        category_name = t.sub_cat.category.category if getattr(t.sub_cat, "category", None) else ""
+        subcat_name = t.sub_cat.sub_cat if t.sub_cat else ""
+        team_name = str(t.team) if t.team else ""
+        event_label = str(t.event) if t.event else ""
+        invoice_no = t.invoice_number or ""
+        invoice_pk = invoice_pk_by_key.get((invoice_no, t.event_id), "") if invoice_no and t.event_id else ""
 
-    for t in transactions:
         writer.writerow([
-            t.date,
+            t.date.isoformat() if hasattr(t.date, "isoformat") else t.date,
             t.trans_type,
-            t.amount,
+            t.amount,       
             t.transaction,
-            t.category.category if t.category else '',
-            t.sub_cat.sub_cat if t.sub_cat else '',
-            t.team.name if t.team else '',
-            f"{t.event.race_name} ({t.event.race_year})" if t.event else '',
-            t.invoice.invoice_number if t.invoice else '',
-            t.invoice.pk if t.invoice else '',
-            t.transport_type or '',
-            t.user.get_full_name() or t.user.username
+            category_name,
+            subcat_name,
+            team_name,
+            event_label,
+            invoice_no,
+            invoice_pk,
+            t.transport_type or "",
+            t.user.get_full_name() or t.user.username,
         ])
 
     return response
-
-
-
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=->          I N V O I C E S
 
 
@@ -483,7 +523,7 @@ class InvoiceListView(LoginRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
         context.update({
             'search_query': self.request.GET.get('search', ''),
-            'current_sort': self.request.GET.get('sort', 'invoice_number'),  # ✅ fixed
+            'current_sort': self.request.GET.get('sort', 'invoice_number'), 
             'current_direction': self.request.GET.get('direction', 'desc'),
             'current_page': 'invoices',
         })
@@ -550,102 +590,22 @@ class InvoiceDeleteView(LoginRequiredMixin, DeleteView):
 
 
 
-
-# @login_required
-# def invoice_review(request, pk):
-#     invoice = get_object_or_404(Invoice, pk=pk)
-
-#     # Related transactions
-#     transactions = Transaction.objects.filter(
-#         event=invoice.event,
-#         invoice_number=invoice.invoice_number
-#     ).select_related('sub_cat__category')
-
-#     # Related mileage
-#     mileage_entries = Miles.objects.filter(
-#         invoice=invoice,
-#         user=request.user,
-#         tax__iexact="Yes",
-#         mileage_type="Taxable"
-#     )
-
-#     try:
-#         rate = MileageRate.objects.first().rate if MileageRate.objects.exists() else Decimal("0.70")
-#     except Exception as e:
-#         logger.error(f"Error fetching mileage rate: {e}")
-#         rate = Decimal("0.70")
-
-#     total_mileage_miles = mileage_entries.aggregate(Sum('total'))['total__sum'] or Decimal("0.00")
-#     mileage_dollars = round(total_mileage_miles * rate, 2)
-
-#     total_income = Decimal("0.00")
-#     total_expenses = Decimal("0.00")
-#     deductible_expenses = Decimal("0.00")
-
-#     for t in transactions:
-#         if t.trans_type == 'Income':
-#             total_income += t.amount
-#         elif t.trans_type == 'Expense':
-#             total_expenses += t.amount
-
-#             if t.sub_cat and t.sub_cat.slug == 'meals':
-#                 deductible_expenses += t.deductible_amount
-#             elif t.sub_cat and t.sub_cat.slug == 'fuel' and t.transport_type == "personal_vehicle":
-#                 continue  # not deductible
-#             else:
-#                 deductible_expenses += t.amount
-
-#     has_income_transaction = total_income > 0
-#     total_cost = total_expenses + mileage_dollars
-
-#     # Conditional calculations
-#     net_income = total_income - total_expenses if has_income_transaction else None
-#     taxable_income = total_income - deductible_expenses - mileage_dollars if has_income_transaction else None
-
-#     context = {
-#         'invoice': invoice,
-#         'transactions': transactions,
-#         'mileage_entries': mileage_entries,
-#         'mileage_rate': rate,
-#         'mileage_dollars': mileage_dollars,
-#         'invoice_amount': invoice.amount,
-#         'total_expenses': total_expenses,
-#         'deductible_expenses': deductible_expenses,
-#         'total_income': total_income,
-#         'net_income': net_income,
-#         'taxable_income': taxable_income,
-#         'total_cost': total_cost,
-#         'has_income_transaction': has_income_transaction,
-#         'now': now(),
-#         'current_page': 'invoices',
-#     }
-
-#     return render(request, 'money/invoice_review.html', context)
-
-
-
-from decimal import Decimal
-from django.db.models import Sum, F, Value, DecimalField, ExpressionWrapper
-
 @login_required
 def invoice_review(request, pk):
     invoice = get_object_or_404(Invoice, pk=pk)
 
-    # Related transactions
     transactions = (
         Transaction.objects
         .filter(event=invoice.event, invoice_number=invoice.invoice_number)
         .select_related('sub_cat__category')
     )
 
-    # Mileage rate (default 0.70 if none set)
     try:
         rate = MileageRate.objects.first().rate if MileageRate.objects.exists() else Decimal("0.70")
     except Exception as e:
         logger.error(f"Error fetching mileage rate: {e}")
         rate = Decimal("0.70")
 
-    # ✅ Related mileage — match by invoice_number (string), not FK
     mileage_entries = (
         Miles.objects
         .filter(
@@ -654,7 +614,7 @@ def invoice_review(request, pk):
             tax__iexact="Yes",
             mileage_type="Taxable",
         )
-        .annotate(  # per-row dollar value = total miles * rate
+        .annotate( 
             value=ExpressionWrapper(
                 F('total') * Value(rate),
                 output_field=DecimalField(max_digits=10, decimal_places=2)
@@ -663,7 +623,6 @@ def invoice_review(request, pk):
         .order_by('date')
     )
 
-    # Totals
     total_mileage_miles = mileage_entries.aggregate(Sum('total'))['total__sum'] or Decimal("0.00")
     mileage_dollars = round(total_mileage_miles * rate, 2)
 
@@ -679,7 +638,7 @@ def invoice_review(request, pk):
             if t.sub_cat and t.sub_cat.slug == 'meals':
                 deductible_expenses += t.deductible_amount
             elif t.sub_cat and t.sub_cat.slug == 'fuel' and t.transport_type == "personal_vehicle":
-                continue  # not deductible
+                continue 
             else:
                 deductible_expenses += t.amount
 
@@ -782,6 +741,8 @@ def invoice_review_pdf(request, pk):
     response['Content-Disposition'] = f'filename=invoice_{invoice.invoice_number}.pdf'
     return response
 
+
+
 @login_required
 def unpaid_invoices(request):
     invoices = Invoice.objects.filter(paid__iexact="No").select_related('client').order_by('due_date')
@@ -793,18 +754,28 @@ def unpaid_invoices(request):
 
 @login_required
 def export_invoices_csv(request):
-    invoices = Invoice.objects.select_related('client', 'event', 'service', 'invoice_number')
+    invoices = (
+        Invoice.objects
+        .select_related('client', 'event', 'service')
+        .order_by('date')
+    )
+
+    year = request.GET.get('year')
+    if year and year.isdigit():
+        invoices = invoices.filter(date__year=year)
+
+    if hasattr(Invoice, 'user'):
+        invoices = invoices.filter(user=request.user)
 
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="invoices.csv"'
-
     writer = csv.writer(response)
+
     writer.writerow([
         'Invoice #',
         'Client',
         'Event',
         'Location',
-        'Event',
         'Service',
         'Amount',
         'Date',
@@ -815,49 +786,20 @@ def export_invoices_csv(request):
 
     for inv in invoices:
         writer.writerow([
-            inv.invoice_number.invoice_numb if inv.invoice_number else '',
-            str(inv.client) if inv.client else '',
-            inv.event if inv.event else '',
-            inv.location if inv.location else '',
-            str(inv.event) if inv.event else '',
-            str(inv.service) if inv.service else '',
-            f"{inv.amount:.2f}",
-            inv.date.strftime('%Y-%m-%d') if inv.date else '',
-            inv.due.strftime('%Y-%m-%d') if inv.due else '',
-            inv.paid_date.strftime('%Y-%m-%d') if inv.paid_date else '',
-            inv.status,
+            inv.invoice_number or '',                       
+            str(inv.client) if getattr(inv, 'client', None) else '',
+            str(inv.event) if getattr(inv, 'event', None) else '',
+            getattr(inv, 'location', '') or '',
+            str(inv.service) if getattr(inv, 'service', None) else '',
+            f"{inv.amount:.2f}" if getattr(inv, 'amount', None) is not None else '',
+            inv.date.strftime('%Y-%m-%d') if getattr(inv, 'date', None) else '',
+            inv.due.strftime('%Y-%m-%d') if getattr(inv, 'due', None) else '',
+            inv.paid_date.strftime('%Y-%m-%d') if getattr(inv, 'paid_date', None) else '',
+            getattr(inv, 'status', '') or '',
         ])
 
     return response
 
-
-
-
-@login_required
-def export_invoices_pdf(request):
-    invoice_view = InvoiceListView()
-    invoice_view.request = request
-    invoices = invoice_view.get_queryset()[:1000]
-
-    if not invoices.exists():
-        messages.error(request, "No invoices to export.")
-        return redirect('invoice_list')
-
-    try:
-        template = get_template('money/invoice_pdf_export.html')
-        html_string = template.render({'invoices': invoices, 'current_page': 'invoices'})
-        with tempfile.NamedTemporaryFile(delete=True) as output:
-            HTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf(output.name)
-            output.seek(0)
-            response = HttpResponse(content_type='application/pdf')
-            response['Content-Disposition'] = 'attachment; filename="invoices.pdf"'
-            response.write(output.read())
-            return response
-    except Exception as e:
-        logger.error(f"Error generating PDF for user {request.user.id}: {e}")
-        messages.error(request, "Error generating PDF.")
-        return redirect('invoice_list')
-    
 
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=->           C A T E G O R I E S 
@@ -1122,7 +1064,6 @@ class ClientDeleteView(LoginRequiredMixin, DeleteView):
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=->            R E P O R T S
 
 
-
 def get_summary_data(request, year):
     EXCLUDED_INCOME_CATEGORIES = ['Equipment Sale']
 
@@ -1191,7 +1132,27 @@ def get_summary_data(request, year):
 
     income_total = sum(item['total'] for item in income_category_totals)
     expense_total = sum(item['total'] for item in expense_category_totals)
-    net_profit = income_total - expense_total
+
+    try:
+        rate = MileageRate.objects.first().rate if MileageRate.objects.exists() else Decimal("0.70")
+    except Exception:
+        rate = Decimal("0.70")
+
+    total_mileage_miles = (
+        Miles.objects.filter(
+            user=request.user,
+            tax__iexact="Yes",
+            mileage_type="Taxable",
+            date__year=selected_year,
+        )
+        .aggregate(total=Sum('total'))['total'] or Decimal('0.00')
+    )
+
+    mileage_deduction_total = (total_mileage_miles * rate).quantize(Decimal('0.01'))
+
+    net_profit = income_total - (expense_total + mileage_deduction_total)
+    expense_total_with_mileage = expense_total + mileage_deduction_total
+
 
     available_years = Transaction.objects.filter(user=request.user).dates('date', 'year', order='DESC')
 
@@ -1201,9 +1162,12 @@ def get_summary_data(request, year):
         'expense_category_totals': expense_category_totals,
         'income_category_total': income_total,
         'expense_category_total': expense_total,
+        'expense_total_with_mileage': expense_total_with_mileage, 
+        'mileage_deduction_total': mileage_deduction_total,
         'net_profit': net_profit,
         'available_years': [d.year for d in available_years],
     }
+
 
 
 
@@ -1692,6 +1656,7 @@ def send_invoice_email(request, invoice_id):
     except Exception as e:
         logger.error(f"Error sending email for invoice {invoice_id} by user {request.user.id}: {e}")
         return JsonResponse({'status': 'error', 'message': 'Failed to send email'}, status=500)
+    
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=->           M I L E A G E
 
@@ -1723,10 +1688,135 @@ def get_mileage_context(request):
     }
 
 
+
+def _get_mileage_rate():
+    """Return the active mileage rate (Decimal). Falls back to 0.70."""
+    fallback = Decimal("0.70")
+    try:
+        obj = MileageRate.objects.first()
+        if not obj or obj.rate is None:
+            return fallback
+        return Decimal(str(obj.rate))
+    except Exception as e:
+        return fallback
+
+def _build_sort_state(current_sort, keys, default_key="-date"):
+    """
+    Build a sort_state dict compatible with your template usage:
+      sort_state.<key>.is_asc / is_desc / next
+    """
+    state = {}
+    for k in keys:
+        asc = k
+        desc = f"-{k}"
+        is_asc = current_sort == asc
+        is_desc = current_sort == desc
+        if is_asc:
+            nxt = desc
+        elif is_desc:
+            nxt = default_key
+        else:
+            nxt = asc
+        state[k] = type("S", (), {"is_asc": is_asc, "is_desc": is_desc, "next": nxt})
+    return state
+
+
+SORT_MAP = {
+    "date": "date",
+    "-date": "-date",
+    "event": "event__title",
+    "-event": "-event__title",
+    "invoice_number": "invoice_number",
+    "-invoice_number": "-invoice_number",
+    "mileage_type": "mileage_type",
+    "-mileage_type": "-mileage_type",
+    "begin": "begin",
+    "-begin": "-begin",
+    "end": "end",
+    "-end": "-end",
+    "total": "total",
+    "-total": "-total",
+    "amount": "amount",
+    "-amount": "-amount",
+}
+
+SORT_KEYS = [
+    "date", "event", "invoice_number", "mileage_type",
+    "begin", "end", "total", "amount",
+]
+
+
+from django.db.models.functions import ExtractYear
+
 @login_required
 def mileage_log(request):
-    context = get_mileage_context(request)
-    return render(request, 'money/mileage_log.html', context)
+    # Available years for this user (DESC)
+    years_qs = (
+        Miles.objects
+        .filter(user=request.user)
+        .annotate(y=ExtractYear('date'))
+        .values_list('y', flat=True)
+        .distinct()
+        .order_by('-y')
+    )
+    years = list(years_qs)
+
+    # Parse ?year=YYYY (fallback to latest available or current year)
+    try:
+        year = int(request.GET.get("year")) if request.GET.get("year") else None
+    except (TypeError, ValueError):
+        year = None
+    if not year:
+        year = (years[0] if years else datetime.now().year)
+
+    rate = _get_mileage_rate()
+
+    qs = (
+        Miles.objects
+        .select_related("event", "client")
+        .filter(user=request.user, date__year=year)
+    )
+
+    amount_expr = ExpressionWrapper(
+        F("total") * rate,
+        output_field=DecimalField(max_digits=10, decimal_places=2)
+    )
+    qs = qs.annotate(
+        amount=Case(
+            When(mileage_type="Taxable", then=amount_expr),
+            default=Value(Decimal("0.00")),
+            output_field=DecimalField(max_digits=10, decimal_places=2),
+        )
+    )
+
+    current_sort = request.GET.get("sort") or "-date"
+    order_by = SORT_MAP.get(current_sort, "-date")
+    qs = qs.order_by(order_by)
+
+    taxable = qs.filter(mileage_type="Taxable")
+    total_miles = taxable.aggregate(total=Sum("total"))["total"] or 0
+    taxable_dollars = (Decimal(str(total_miles)) * rate).quantize(Decimal("0.01"))
+
+    paginator = Paginator(qs, 50)
+    page_number = request.GET.get("page", 1)
+    page_obj = paginator.get_page(page_number)
+
+    sort_state = _build_sort_state(current_sort, SORT_KEYS, default_key="-date")
+
+    context = {
+        "mileage_list": page_obj,
+        "page_obj": page_obj,
+        "total_miles": total_miles,
+        "taxable_dollars": taxable_dollars,
+        "current_year": year,
+        "mileage_rate": rate,
+        "current_page": "mileage",
+        "sort_state": sort_state,
+        "years": years,  # 👈 add to context
+    }
+    return render(request, "money/mileage_log.html", context)
+
+
 
 
 class MileageCreateView(LoginRequiredMixin, CreateView):
@@ -1803,7 +1893,7 @@ def update_mileage_rate(request):
 
 @login_required
 def export_mileage_csv(request):
-    miles_entries = Miles.objects.filter(user=request.user).select_related('client', 'invoice')
+    miles_entries = Miles.objects.filter(user=request.user).select_related('client')
 
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="mileage.csv"'
@@ -1811,13 +1901,13 @@ def export_mileage_csv(request):
     writer = csv.writer(response)
     writer.writerow([
         'Date',
+        'Invoice #',
+        'Event',
+        'Client',
         'Start Odometer',
         'End Odometer',
         'Total Miles',
-        'Client',
-        'Invoice #',
         'Tax Deductible',
-        'Job',
         'Vehicle',
         'Mileage Type',
     ])
@@ -1825,13 +1915,13 @@ def export_mileage_csv(request):
     for entry in miles_entries:
         writer.writerow([
             entry.date,
+            entry.invoice_number if entry.invoice_number else '',
+            entry.event if entry.event else '',
+            str(entry.client) if entry.client else '',
             entry.begin,
             entry.end,
             entry.total,
-            str(entry.client) if entry.client else '',
-            entry.invoice.invoice if entry.invoice else '',
             entry.tax,
-            entry.job or '',
             entry.vehicle or '',
             entry.mileage_type,
         ])

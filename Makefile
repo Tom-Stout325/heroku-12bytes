@@ -1,93 +1,75 @@
-# make run-skyguy
-# make migrate-skyguy
+# =========[ Config ]=========
+PY        ?= python
+DJ        ?= $(PY) manage.py
+SETTINGS  ?= project.settings.suite
+PROD_APP  ?= heroku-12bytes
 
-# make run-airborne
-# make migrate-airborne_images
+# Local env file for your “staging” (local) profile
+ENV_AIRBORNE_LOCAL ?= .env.airborne_local
 
-# ENV VARS
-ENV_SKYGUY=.env.skyguy
-ENV_AIRBORNE=.env.airborne_images
+# Defaults for seeding a local superuser
+SU_USERNAME ?= admin
+SU_EMAIL    ?= admin@example.com
+SU_PASSWORD ?= admin123
 
+# =========[ Help ]=========
+.PHONY: help
+help:
+	@echo "Targets:"
+	@echo "  run-airborne-local           - Run local server (.env.airborne_local)"
+	@echo "  migrate-airborne-local       - Apply migrations locally"
+	@echo "  seed-local-superuser         - Create/refresh a local superuser"
+	@echo "  pull-prod-to-local           - Pull Heroku PROD DB -> local"
+	@echo "  reset-and-pull-prod-to-local - Drop/recreate local DB, then pull"
+	@echo "  dbinfo-airborne-local        - Print local DB settings seen by Django"
+	@echo "  logs-prod / open-prod        - Tail logs / open Heroku PROD"
+	@echo "  migrate-prod                 - Run migrations on Heroku PROD"
 
-# ─── RUNSERVER ──────────────────────────────────────────────
-run-skyguy:
-	ENV_FILE=.env.skyguy DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py runserver
+# =========[ Local: Airborne profile ]=========
+.PHONY: run-airborne-local migrate-airborne-local dbinfo-airborne-local
+run-airborne-local:
+	ENV_FILE=$(ENV_AIRBORNE_LOCAL) DJANGO_SETTINGS_MODULE=$(SETTINGS) $(DJ) runserver
 
-run-airborne:
-	ENV_FILE=.env.airborne_images DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py runserver
+migrate-airborne-local:
+	ENV_FILE=$(ENV_AIRBORNE_LOCAL) DJANGO_SETTINGS_MODULE=$(SETTINGS) $(DJ) migrate
 
-run-dev:
-	ENV_FILE=.env.local DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py runserver
+makemigrations-airborne-local:
+	ENV_FILE=$(ENV_AIRBORNE_LOCAL) DJANGO_SETTINGS_MODULE=$(SETTINGS) $(DJ) makemigrations
 
-# ─── MIGRATIONS ─────────────────────────────────────────────
-migrate-skyguy:
-	ENV_FILE=$(ENV_SKYGUY) DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py migrate
+dbinfo-airborne-local:
+	ENV_FILE=$(ENV_AIRBORNE_LOCAL) DJANGO_SETTINGS_MODULE=$(SETTINGS) \
+	$(PY) -c 'from django.conf import settings; db=settings.DATABASES["default"]; print("ENGINE:",db.get("ENGINE")); print("NAME  :",db.get("NAME")); print("HOST  :",db.get("HOST")); print("USER  :",db.get("USER"))'
 
-migrate-airborne:
-	ENV_FILE=$(ENV_AIRBORNE) DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py migrate
+# =========[ Seed a local superuser ]=========
+.PHONY: seed-local-superuser
+seed-local-superuser:
+	@echo "Seeding local superuser '$(SU_USERNAME)'..."
+	ENV_FILE=$(ENV_AIRBORNE_LOCAL) DJANGO_SETTINGS_MODULE=$(SETTINGS) \
+	SU_USERNAME="$(SU_USERNAME)" SU_EMAIL="$(SU_EMAIL)" SU_PASSWORD="$(SU_PASSWORD)" \
+	$(PY) -c 'from django.contrib.auth import get_user_model; import os; U=get_user_model(); un=os.environ.get("SU_USERNAME","admin"); em=os.environ.get("SU_EMAIL","admin@example.com"); pw=os.environ.get("SU_PASSWORD","admin123"); u,created=U.objects.get_or_create(username=un, defaults={"email": em}); u.email=em or u.email; u.is_staff=True; u.is_superuser=True; u.set_password(pw); u.save(); print(("Created" if created else "Updated"), "superuser:", u.username)'
 
-migrate-local:
-	ENV_FILE=.env.local DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py migrate
+# =========[ Pull PROD DB -> local ]=========
+.PHONY: pull-prod-to-local reset-and-pull-prod-to-local
+pull-prod-to-local:
+	@echo "Pulling Heroku PROD DB into local (airborne)…"
+	@SOURCE_URL=$$(heroku config:get DATABASE_URL -a $(PROD_APP)); \
+	pg_dump "$$SOURCE_URL?sslmode=require" --no-owner --no-acl --no-event-triggers | \
+	psql "postgres://tomstout:Cassie2001@127.0.0.1:5432/12bytes_airborne_local?sslmode=disable"
 
-	
-makemigrations:
-	ENV_FILE=$(ENV_AIRBORNE) DJANGO_SETTINGS_MODULE=project.settings.suite python3 manage.py makemigrations
+reset-and-pull-prod-to-local:
+	psql -h 127.0.0.1 -p 5432 -U postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='12bytes_airborne_local';" || true
+	dropdb  -h 127.0.0.1 -p 5432 -U postgres 12bytes_airborne_local || true
+	createdb -h 127.0.0.1 -p 5432 -U postgres -O tomstout 12bytes_airborne_local
+	$(MAKE) pull-prod-to-local
 
-makemigrations-airborne:
-	ENV_FILE=$(ENV_AIRBORNE) DJANGO_SETTINGS_MODULE=project.settings.suite python3 manage.py makemigrations
+# =========[ Heroku: PROD helpers ]=========
+.PHONY: logs-prod open-prod migrate-prod
+logs-prod:
+	heroku logs -t -a $(PROD_APP)
 
-makemigrations-skyguy:
-	ENV_FILE=$(ENV_SKYGUY) DJANGO_SETTINGS_MODULE=project.settings.suite python3 manage.py makemigrations
-
-makemigrations-local:
-	ENV_FILE=.env.local DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py makemigrations
-
-
-# ─── SHELL ──────────────────────────────────────────────────
-shell-skyguy:
-	ENV_FILE=$(ENV_SKYGUY) DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py shell
-
-shell-airborne:
-	ENV_FILE=$(ENV_AIRBORNE) DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py shell
-
-# ─── COLLECTSTATIC ──────────────────────────────────────────
-collectstatic-skyguy:
-	ENV_FILE=$(ENV_SKYGUY) DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py collectstatic --noinput
-
-collectstatic-airborne:
-	ENV_FILE=$(ENV_AIRBORNE) DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py collectstatic --noinput
-
-# ─── BACKUP ─────────────────────────────────────────────────
-backup-skyguy:
-	ENV_FILE=$(ENV_SKYGUY) DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py dbbackup
-
-backup-airborne:
-	ENV_FILE=$(ENV_AIRBORNE) DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py dbbackup
-
-# ─── TESTING ────────────────────────────────────────────────
-test-skyguy:
-	ENV_FILE=$(ENV_SKYGUY) DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py test
-
-test-airborne:
-	ENV_FILE=$(ENV_AIRBORNE) DJANGO_SETTINGS_MODULE=project.settings.suite python manage.py test
-
-
-.PHONY: run-skyguy run-airborne migrate-skyguy migrate-airborne shell-skyguy shell-airborne collectstatic-skyguy collectstatic-airborne backup-skyguy backup-airborne test-skyguy test-airborne
+open-prod:
+	heroku open -a $(PROD_APP)
 
 
-# ─── FULL DEPLOY ─────────────────────────────────────────────
-full-deploy-airborne:
-	git checkout client-airborne
-	git pull origin main
-	git push origin client-airborne
-	heroku run python manage.py migrate -a airborne-images-12bytes
-	heroku run python manage.py collectstatic --noinput -a airborne-images-12bytes
-	heroku restart -a airborne-images-12bytes
-
-full-deploy-skyguy:
-	git checkout client-skyguy
-	git pull origin main
-	git push origin client-skyguy
-	heroku run python manage.py migrate -a skyguy-12bytes
-	heroku run python manage.py collectstatic --noinput -a skyguy-12bytes
-	heroku restart -a skyguy-12bytes
+migrate-prod:
+	heroku run -a $(PROD_APP) -- python manage.py migrate --noinpu

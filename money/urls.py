@@ -29,8 +29,6 @@ urlpatterns = [
     path('invoice/<int:invoice_id>/email/', send_invoice_email, name='send_invoice_email'),
     path('unpaid-invoices/', unpaid_invoices, name='unpaid_invoices'),
     path('invoices/export/csv/', export_invoices_csv, name='export_invoices_csv'),
-    path('invoices/export/pdf/', export_invoices_pdf, name='export_invoices_pdf'),
-
 
 
     # Categories & Subcategories

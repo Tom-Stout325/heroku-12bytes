@@ -6,7 +6,7 @@ from datetime import datetime
 from django.core.exceptions import ValidationError
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit, Layout, Row, Column
-
+from django.core.exceptions import FieldError
 
 
 class TransForm(forms.ModelForm):
@@ -152,6 +152,9 @@ class ClientForm(forms.ModelForm):
 
 
 
+
+
+
 class MileageForm(forms.ModelForm):
     class Meta:
         model = Miles
@@ -161,15 +164,23 @@ class MileageForm(forms.ModelForm):
             'begin': forms.NumberInput(attrs={'step': '0.1', 'class': 'form-control'}),
             'end': forms.NumberInput(attrs={'step': '0.1', 'class': 'form-control'}),
             'client': forms.Select(attrs={'class': 'form-control'}),
-            'invoice': forms.Select(attrs={'class': 'form-control'}), 
+            'event': forms.Select(attrs={'class': 'form-control'}),  # dropdown of Events
+            'invoice_number': forms.TextInput(attrs={'class': 'form-control'}),
             'tax': forms.TextInput(attrs={'class': 'form-control'}),
-            'job': forms.TextInput(attrs={'class': 'form-control'}),
             'vehicle': forms.TextInput(attrs={'class': 'form-control'}),
             'mileage_type': forms.Select(attrs={'class': 'form-control'}),
         }
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['invoice'].queryset = Invoice.objects.order_by('-date')
+
+        self.fields['event'].required = False
+        self.fields['event'].empty_label = '— No event —'
+
+        try:
+            self.fields['event'].queryset = Event.objects.order_by('-event_year', 'title')
+        except FieldError:
+            self.fields['event'].queryset = Event.objects.order_by('-id', 'title')
 
 
 

@@ -252,7 +252,6 @@ class MileageRate(models.Model):
 
 
 
-
 class Miles(models.Model):
     MILEAGE_TYPE_CHOICES = [
         ('Taxable', 'Taxable'),
@@ -265,9 +264,9 @@ class Miles(models.Model):
     end             = models.DecimalField(max_digits=10, decimal_places=1, null=True, validators=[MinValueValidator(0)])
     total           = models.DecimalField(max_digits=10, decimal_places=1, null=True, editable=False)
     client          = models.ForeignKey('Client', on_delete=models.PROTECT)
+    event           = models.ForeignKey('Event', on_delete=models.SET_NULL, null=True, blank=True)  # ✅ New field
     invoice_number  = models.CharField(null=True, blank=True, db_index=True)
     tax             = models.CharField(max_length=10, blank=False, null=True, default="Yes")
-    job             = models.CharField(max_length=255, blank=True, null=True)
     vehicle         = models.CharField(max_length=255, blank=False, null=True, default="Lead Foot")
     mileage_type    = models.CharField(max_length=20, choices=MILEAGE_TYPE_CHOICES, default='Taxable')
 
@@ -280,8 +279,7 @@ class Miles(models.Model):
         ordering = ['-date']
 
     def __str__(self):
-        return f"{self.invoice_numb} – {self.client} ({self.date})"
-
+        return f"{self.invoice_number} – {self.client} ({self.date})"
 
     def save(self, *args, **kwargs):
         if self.begin is not None and self.end is not None:
@@ -289,17 +287,6 @@ class Miles(models.Model):
         else:
             self.total = None
         super().save(*args, **kwargs)
-
-
-
-
-
-
-
-
-
-
-
 
 
 

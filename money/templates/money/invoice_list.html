@@ -31,9 +31,6 @@
     <a href="{% url 'export_invoices_csv' %}?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value|urlencode }}&{% endif %}{% endfor %}" class="btn btn-outline-success">
       <i class="fa-solid fa-file-csv"></i> CSV
     </a>
-    <a href="{% url 'export_invoices_pdf' %}?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value|urlencode }}&{% endif %}{% endfor %}" class="btn btn-outline-danger">
-      <i class="fa-solid fa-file-pdf"></i> PDF
-    </a>
   </div>
 
   <!-- Table -->
@@ -59,9 +56,7 @@
             </a>
           </th>
           <th>Event</th>
-          <th>Location</th>
-          <th>Event</th>
-          <th>Service</th>
+   
           <th>
             <a href="?{% for key, value in request.GET.items %}{% if key not in 'sort direction page' %}{{ key }}={{ value|urlencode }}&{% endif %}{% endfor %}sort=amount&direction={% if current_sort == 'amount' and current_direction == 'asc' %}desc{% else %}asc{% endif %}">
               Amount
@@ -83,9 +78,6 @@
           <td>{{ invoice.invoice_number }}</td>
           <td>{{ invoice.client }}</td>
           <td>{{ invoice.event }}</td>
-          <td>{{ invoice.location }}</td>
-          <td>{{ invoice.Event }}</td>
-          <td>{{ invoice.service }}</td>
           <td>${{ invoice.amount|floatformat:2|intcomma }}</td>
           <td>{{ invoice.date }}</td>
           <td>{{ invoice.due }}</td>
