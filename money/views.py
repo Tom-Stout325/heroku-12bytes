@@ -55,34 +55,106 @@ class Dashboard(LoginRequiredMixin, TemplateView):
 
 
 
-ALLOWED_SORT_FIELDS = ("date", "trans_type", "transaction", "amount", "invoice_number")
+# money/views.py  (transactions section)
+from decimal import Decimal
+import csv
+
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.decorators import login_required
+from django.views.generic import ListView
+from django.db.models.functions import ExtractYear
+from django.http import HttpResponse
+from django.utils.encoding import smart_str
+
+from .models import Transaction, Category, SubCategory, Event
+
+
+# -------- Sorting --------
+
+# Keys you allow from the UI (and that you'll show in sort_state)
+ALLOWED_SORT_FIELDS = (
+    "date",
+    "trans_type",
+    "transaction",
+    "amount",
+    "invoice_number",
+    "event",          # shown in header; maps to event__title
+)
+
+# Map UI keys -> ORM fields. Related fields must use double-underscore.
+SORT_MAP = {
+    "date": "date",
+    "trans_type": "trans_type",
+    "transaction": "transaction",
+    "amount": "amount",
+    "invoice_number": "invoice_number",
+    "event": "event__title",
+}
 
 def _sanitize_sort(raw_sort: str) -> str:
     """
-    Only allow fields in ALLOWED_SORT_FIELDS (with optional leading '-').
+    Only allow keys defined in ALLOWED_SORT_FIELDS (with optional '-').
     Fallback to '-date'.
     """
     if not raw_sort:
         return "-date"
-    field = raw_sort.lstrip('-')
-    if field not in ALLOWED_SORT_FIELDS:
-        return "-date"
-    return raw_sort if raw_sort.startswith('-') else field if field in ALLOWED_SORT_FIELDS else "-date"
+    key = raw_sort.lstrip('-')
+    return raw_sort if key in ALLOWED_SORT_FIELDS else "-date"
 
 def _build_sort_state(current_sort: str):
     """
-    For each sortable column, return:
-      - is_asc / is_desc booleans
-      - next (what to send in ?sort=… for next click)
+    Build sort state for template:
+      sort_state.<key>.is_asc / is_desc / next
     """
     state = {}
-    for f in ALLOWED_SORT_FIELDS:
-        is_asc = (current_sort == f)
-        is_desc = (current_sort == f"-{f}")
-        next_sort = f"-{f}" if is_asc else f
-        state[f] = {"is_asc": is_asc, "is_desc": is_desc, "next": next_sort}
+    for key in ALLOWED_SORT_FIELDS:
+        is_asc = (current_sort == key)
+        is_desc = (current_sort == f"-{key}")
+        next_sort = f"-{key}" if is_asc else key  # asc -> desc, otherwise -> asc
+        state[key] = {"is_asc": is_asc, "is_desc": is_desc, "next": next_sort}
     return state
 
+def _apply_ordering(qs, sort_param: str):
+    sort = _sanitize_sort(sort_param)
+    key = sort.lstrip('-')
+    field = SORT_MAP.get(key, "date")
+    if sort.startswith('-'):
+        field = f"-{field}"
+    return qs.order_by(field), sort
+
+
+# -------- Filters (shared by list + export) --------
+
+def _filtered_transactions(request):
+    """
+    Base filtered queryset for the current user, before ordering/pagination.
+    """
+    qs = (
+        Transaction.objects
+        .select_related('sub_cat__category', 'sub_cat', 'team', 'event')
+        .filter(user=request.user)
+    )
+
+    event_id = request.GET.get('event')
+    if event_id and Event.objects.filter(id=event_id).exists():
+        qs = qs.filter(event__id=event_id)
+
+    category_id = request.GET.get('category')
+    if category_id and Category.objects.filter(id=category_id).exists():
+        qs = qs.filter(sub_cat__category__id=category_id)
+
+    sub_cat_id = request.GET.get('sub_cat')
+    if sub_cat_id and SubCategory.objects.filter(id=sub_cat_id).exists():
+        qs = qs.filter(sub_cat__id=sub_cat_id)
+
+    year = request.GET.get('year')
+    if year and year.isdigit() and 1900 <= int(year) <= 9999:
+        qs = qs.filter(date__year=year)
+
+    return qs
+
+
+# -------- List View --------
 
 class Transactions(LoginRequiredMixin, ListView):
     model = Transaction
@@ -91,60 +163,42 @@ class Transactions(LoginRequiredMixin, ListView):
     paginate_by = 50
 
     def get_queryset(self):
-        qs = (
-            Transaction.objects
-            .select_related('sub_cat__category', 'sub_cat', 'team', 'event')
-            .filter(user=self.request.user)
-        )
-
-        # ---- Filters ----
-        event_id = self.request.GET.get('event')
-        if event_id and Event.objects.filter(id=event_id).exists():
-            qs = qs.filter(event__id=event_id)
-
-        category_id = self.request.GET.get('category')
-        if category_id and Category.objects.filter(id=category_id).exists():
-            qs = qs.filter(sub_cat__category__id=category_id)
-
-        sub_cat_id = self.request.GET.get('sub_cat')
-        if sub_cat_id and SubCategory.objects.filter(id=sub_cat_id).exists():
-            qs = qs.filter(sub_cat__id=sub_cat_id)
-
-        year = self.request.GET.get('year')
-        if year and year.isdigit() and 1900 <= int(year) <= 9999:
-            qs = qs.filter(date__year=year)
-
-        # ---- Sorting ----
+        qs = _filtered_transactions(self.request)
         raw_sort = self.request.GET.get('sort', '-date')
-        sort = _sanitize_sort(raw_sort)
-        self.current_sort = sort
-        return qs.order_by(sort)
+        qs, self.current_sort = _apply_ordering(qs, raw_sort)
+        return qs
 
     def get_context_data(self, **kwargs):
+        from django.db.models import Q  # only if you later add text search, otherwise unused
         ctx = super().get_context_data(**kwargs)
 
-        # Lists for filters
+        # Filter dropdown data
         ctx['events'] = (
-            Event.objects.filter(transactions__user=self.request.user)
-            .distinct().order_by('slug')
+            Event.objects.filter(transactions__user=self.request.user)  # relies on related_name='transactions'
+            .distinct()
+            .order_by('slug')
         )
         ctx['categories'] = (
-            Category.objects.filter(subcategories__transaction__user=self.request.user)
-            .distinct().order_by('category')
+            Category.objects.filter(subcategories__transaction__user=self.request.user)  # relies on related_name='subcategories'
+            .distinct()
+            .order_by('category')
         )
         ctx['subcategories'] = (
-            SubCategory.objects.filter(transaction__user=self.request.user)
-            .distinct().order_by('sub_cat')
+            SubCategory.objects.filter(transaction__user=self.request.user)  # relies on default or set related_name
+            .distinct()
+            .order_by('sub_cat')
         )
         ctx['years'] = [
-            str(y) for y in Transaction.objects.filter(user=self.request.user)
-            .annotate(year=ExtractYear('date'))
-            .values_list('year', flat=True)
-            .distinct()
-            .order_by('-year')
+            str(y) for y in (
+                Transaction.objects.filter(user=self.request.user)
+                .annotate(year=ExtractYear('date'))
+                .values_list('year', flat=True)
+                .distinct()
+                .order_by('-year')
+            )
         ]
 
-        # Current selections
+        # Selected filter values (as strings for template comparison)
         ctx.update({
             'selected_event': self.request.GET.get('event', ''),
             'selected_category': self.request.GET.get('category', ''),
@@ -157,6 +211,43 @@ class Transactions(LoginRequiredMixin, ListView):
         return ctx
 
 
+# -------- CSV Export (uses same filters + ordering) --------
+
+@login_required
+def export_transactions_csv(request):
+    qs = _filtered_transactions(request)
+    raw_sort = request.GET.get('sort', '-date')
+    qs, _ = _apply_ordering(qs, raw_sort)
+
+    # Stream a simple CSV
+    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = 'attachment; filename=transactions.csv'
+    writer = csv.writer(response)
+
+    writer.writerow([
+        "Date",
+        "Type",
+        "Invoice #",
+        "Event",
+        "Description",
+        "Amount",
+    ])
+
+    for t in qs:
+        writer.writerow([
+            smart_str(t.date.isoformat() if t.date else ""),
+            smart_str(t.trans_type or ""),
+            smart_str(t.invoice_number or ""),
+            smart_str(t.event.title if getattr(t, "event", None) else ""),
+            smart_str(t.transaction or ""),
+            f"{(t.amount or Decimal('0')):.2f}",
+        ])
+
+    return response
+
+
+
+
 
 
 class TransactionDetailView(LoginRequiredMixin, DetailView):
@@ -165,7 +256,6 @@ class TransactionDetailView(LoginRequiredMixin, DetailView):
     context_object_name = 'transaction'
 
     def get_queryset(self):
-        # pull common FKs in one query
         return (
             Transaction.objects
             .select_related('sub_cat', 'sub_cat__category', 'team', 'event')
@@ -178,13 +268,11 @@ class TransactionDetailView(LoginRequiredMixin, DetailView):
 
         matched_invoice = None
         if t.invoice_number:
-            # 1) Prefer strict match on (event, invoice_number) when event exists
             if t.event_id:
                 matched_invoice = Invoice.objects.filter(
                     invoice_number=t.invoice_number,
                     event=t.event
                 ).first()
-            # 2) Fallback: match by invoice_number only
             if not matched_invoice:
                 matched_invoice = Invoice.objects.filter(
                     invoice_number=t.invoice_number
@@ -302,83 +390,6 @@ def add_transaction_success(request):
     return render(request, 'money/transaction_add_success.html', context)
 
 
-@login_required
-def export_transactions_csv(request):
-    """
-    Export the user's transactions as CSV.
-    - Uses select_related only for relational fields.
-    - Writes invoice_number directly (CharField on Transaction).
-    - Also attempts to look up an Invoice PK for (invoice_number, event) pairs
-      so the CSV can still include 'Invoice PK' even without a direct FK.
-    """
-    qs = (
-        Transaction.objects
-        .select_related("sub_cat__category", "sub_cat", "team", "event", "user")
-        .filter(user=request.user)
-        .order_by("date")
-    )
-
-    year = request.GET.get("year")
-    if year and year.isdigit():
-        qs = qs.filter(date__year=year)
-
-    invoice_numbers = set(
-        n for n in qs.values_list("invoice_number", flat=True) if n
-    )
-    event_ids = set(
-        e for e in qs.values_list("event_id", flat=True) if e
-    )
-    invoice_pk_by_key = {}
-    if invoice_numbers and event_ids:
-        for inv in Invoice.objects.filter(
-            invoice_number__in=invoice_numbers,
-            event_id__in=event_ids,
-        ).only("id", "invoice_number", "event_id"):
-            invoice_pk_by_key[(inv.invoice_number, inv.event_id)] = inv.id
-
-    response = HttpResponse(content_type="text/csv")
-    response["Content-Disposition"] = 'attachment; filename="transactions.csv"'
-    writer = csv.writer(response)
-
-    writer.writerow([
-        "Date",
-        "Type",
-        "Amount",
-        "Transaction",
-        "Category",
-        "Sub-Category",
-        "Team",
-        "Event",
-        "Invoice #",
-        "Invoice PK",
-        "Transport Type",
-        "User",
-    ])
-
-    for t in qs:
-        category_name = t.sub_cat.category.category if getattr(t.sub_cat, "category", None) else ""
-        subcat_name = t.sub_cat.sub_cat if t.sub_cat else ""
-        team_name = str(t.team) if t.team else ""
-        event_label = str(t.event) if t.event else ""
-        invoice_no = t.invoice_number or ""
-        invoice_pk = invoice_pk_by_key.get((invoice_no, t.event_id), "") if invoice_no and t.event_id else ""
-
-        writer.writerow([
-            t.date.isoformat() if hasattr(t.date, "isoformat") else t.date,
-            t.trans_type,
-            t.amount,       
-            t.transaction,
-            category_name,
-            subcat_name,
-            team_name,
-            event_label,
-            invoice_no,
-            invoice_pk,
-            t.transport_type or "",
-            t.user.get_full_name() or t.user.username,
-        ])
-
-    return response
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=->          I N V O I C E S
 
 
@@ -1453,7 +1464,7 @@ def travel_expense_analysis(request):
 
     selected_year = int(request.GET.get('year', current_year))
 
-    income_subcat_id = 19  # Services: Drone
+    income_subcat_id = 19
     expense_subcat_ids = [100, 23, 24, 27, 25, 26, 28]
 
     income_total = Transaction.objects.filter(

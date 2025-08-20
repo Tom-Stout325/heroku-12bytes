@@ -154,37 +154,8 @@
               </a>
             </th>
           {% endwith %}
-
-          {% with st=sort_state.transaction %}
-          <th scope="col" {% if st.is_asc %}aria-sort="ascending"{% elif st.is_desc %}aria-sort="descending"{% else %}aria-sort="none"{% endif %}>
-            <a class="text-decoration-none" href="?{% query_transform request.GET sort=st.next %}">
-              Description
-              {% if st.is_asc %}
-                <i class="fas fa-sort-up ms-1"></i>
-              {% elif st.is_desc %}
-                <i class="fas fa-sort-down ms-1"></i>
-              {% else %}
-                <i class="fas fa-sort ms-1 text-muted"></i>
-              {% endif %}
-            </a>
-          </th>
-          {% endwith %}
-
-          {% with st=sort_state.amount %}
-          <th scope="col" {% if st.is_asc %}aria-sort="ascending"{% elif st.is_desc %}aria-sort="descending"{% else %}aria-sort="none"{% endif %}>
-            <a class="text-decoration-none" href="?{% query_transform request.GET sort=st.next %}">
-              Amount
-              {% if st.is_asc %}
-                <i class="fas fa-sort-up ms-1"></i>
-              {% elif st.is_desc %}
-                <i class="fas fa-sort-down ms-1"></i>
-              {% else %}
-                <i class="fas fa-sort ms-1 text-muted"></i>
-              {% endif %}
-            </a>
-          </th>
-          {% endwith %}
-
+          <th>Description</th>    
+          <th>Amount</th>
           <th class="text-center">Actions</th>
         </tr>
       </thead>
