@@ -1905,20 +1905,21 @@ class EventListView(LoginRequiredMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        queryset = Event.objects.all().order_by('title')
+        qs = Event.objects.all()
         query = self.request.GET.get('q')
         if query:
-            queryset = queryset.filter(
+            qs = qs.filter(
                 Q(title__icontains=query) |
                 Q(location_city__icontains=query)
             )
-        return queryset
+        return qs.order_by('title')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['current_page'] = 'events'
         context['query'] = self.request.GET.get('q', '')
         return context
+
 
 
 
