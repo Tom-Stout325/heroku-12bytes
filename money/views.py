@@ -1323,7 +1323,7 @@ def form_4797_pdf(request):
 
 
 @login_required
-def nhra_summary(request):
+def event_summary(request):
     current_year = timezone.now().year
     years = [current_year, current_year - 1, current_year - 2]
     excluded_ids = [35, 133, 34, 67, 100]
@@ -1348,7 +1348,7 @@ def nhra_summary(request):
 
     result_dict = dict(result)
 
-    logger.debug(f"NHRA summary data for user {request.user.id}: {result_dict}")
+    logger.debug(f"Event summary data for user {request.user.id}: {result_dict}")
 
     context = {
         "years": years,
@@ -1358,7 +1358,7 @@ def nhra_summary(request):
         },
         'current_page': 'reports'
     }
-    return render(request, "nhra/nhra_summary.html", context)
+    return render(request, "event/event_summary.html", context)
 
 
 
@@ -1431,7 +1431,7 @@ def race_expense_report(request):
         'current_page': 'reports',
     }
 
-    return render(request, 'nhra/race_expense_report.html', context)
+    return render(request, 'event/race_expense_report.html', context)
 
 
 
@@ -1482,7 +1482,7 @@ def travel_expense_analysis(request):
         'current_page': 'reports',
     }
 
-    return render(request, 'nhra/travel_expense_analysis.html', context)
+    return render(request, 'event/travel_expense_analysis.html', context)
 
 
 
@@ -1900,7 +1900,7 @@ def export_mileage_csv(request):
 
 class EventListView(LoginRequiredMixin, ListView):
     model = Event
-    template_name = 'nhra/event_list.html'
+    template_name = 'event/event_list.html'
     context_object_name = 'events'
     paginate_by = 25
 

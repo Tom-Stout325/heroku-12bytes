@@ -1,0 +1,55 @@
+# =========[ Local: SkyGuy profile ]=========
+ENV_SKYGUY_LOCAL ?= .env.skyguy_local
+PROD_APP_SKYGUY  ?= skyguy-12bytes   # <-- set to your real Heroku app name
+
+.PHONY: run-skyguy-local migrate-skyguy-local makemigrations-skyguy-local dbinfo-skyguy-local
+run-skyguy-local:
+	ENV_FILE=$(ENV_SKYGUY_LOCAL) DJANGO_SETTINGS_MODULE=$(SETTINGS) $(DJ) runserver
+
+migrate-skyguy-local:
+	ENV_FILE=$(ENV_SKYGUY_LOCAL) DJANGO_SETTINGS_MODULE=$(SETTINGS) $(DJ) migrate
+
+makemigrations-skyguy-local:
+	ENV_FILE=$(ENV_SKYGUY_LOCAL) DJANGO_SETTINGS_MODULE=$(SETTINGS) $(DJ) makemigrations
+
+dbinfo-skyguy-local:
+	ENV_FILE=$(ENV_SKYGUY_LOCAL) DJANGO_SETTINGS_MODULE=$(SETTINGS) \
+	$(PY) -c 'from django.conf import settings; db=settings.DATABASES["default"]; print("ENGINE:",db.get("ENGINE")); print("NAME  :",db.get("NAME")); print("HOST  :",db.get("HOST")); print("USER  :",db.get("USER"))'
+
+# =========[ Pull SkyGuy PROD DB -> local ]=========
+.PHONY: pull-skyguy-prod-to-local reset-and-pull-skyguy-prod-to-local
+pull-skyguy-prod-to-local:
+	@echo "Pulling Heroku SkyGuy DB into local (skyguy_local)…"
+	@SOURCE_URL=$$(heroku config:get DATABASE_URL -a $(PROD_APP_SKYGUY)); \
+	pg_dump "$$SOURCE_URL?sslmode=require" --no-owner --no-acl --no-event-triggers | \
+	psql "postgres://tomstout:Cassie2001@127.0.0.1:5432/skyguy_local?sslmode=disable"
+
+reset-and-pull-skyguy-prod-to-local:
+	psql -h 127.0.0.1 -p 5432 -U postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='skyguy_local';" || true
+	dropdb  -h 127.0.0.1 -p 5432 -U postgres skyguy_local || true
+	createdb -h 127.0.0.1 -p 5432 -U postgres -O tomstout skyguy_local
+	$(MAKE) pull-skyguy-prod-to-local
+
+# =========[ Heroku: SkyGuy helpers ]=========
+.PHONY: logs-skyguy open-skyguy migrate-skyguy-prod
+logs-skyguy:
+	heroku logs -t -a $(PROD_APP_SKYGUY)
+
+open-skyguy:
+	heroku open -a $(PROD_APP_SKYGUY)
+
+migrate-skyguy-prod:
+	heroku run -a $(PROD_APP_SKYGUY) -- python manage.py migrate --noinput
+
+
+# Generic manage: use with ENV=<envfile> CMD="your manage.py command"
+.PHONY: manage
+manage:
+	@if [ -z "$(ENV)" ]; then echo "Usage: make manage ENV=.env.skyguy_local CMD='collectstatic --noinput'"; exit 1; fi
+	@if [ -z "$(CMD)" ]; then echo "Missing CMD=..."; exit 1; fi
+	ENV_FILE=$(ENV) DJANGO_SETTINGS_MODULE=$(SETTINGS) $(DJ) $(CMD)
+
+
+# Example: 
+# make manage ENV=.env.skyguy_local CMD="showmigrations"
+# make manage ENV=.env.airborne_local CMD="createsuperuser"
